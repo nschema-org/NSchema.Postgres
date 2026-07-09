@@ -10,7 +10,15 @@ This package uses **lockstep major versioning** with the core NSchema package: `
 
 As a consequence, breaking changes that are specific to this provider (rather than the core API) are signalled by a **minor version bump** rather than a major one, and called out explicitly in this changelog.
 
-## [4.1.0] - 2026-07-09
+## [4.3.0] - 2026-07-09
+
+### Added
+
+- Support for the `MIGRATION FOR` data migrations introduced in NSchema.Core 4.3.
+
+### Changed
+
+- A plan action this provider doesn't recognize now reports that the plan may come from a newer NSchema.Core than the provider supports, and to check for a provider update.
 
 ### Fixed
 

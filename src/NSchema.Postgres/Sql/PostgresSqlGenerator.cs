@@ -7,6 +7,7 @@ using NSchema.Plan.Model.Domains;
 using NSchema.Plan.Model.Enums;
 using NSchema.Plan.Model.Extensions;
 using NSchema.Plan.Model.Indexes;
+using NSchema.Plan.Model.Migrations;
 using NSchema.Plan.Model.Routines;
 using NSchema.Plan.Model.Schemas;
 using NSchema.Plan.Model.Sequence;
@@ -45,6 +46,8 @@ internal sealed class PostgresSqlGenerator : ISqlGenerator
         // the statement is carved out of the surrounding transaction. The executor commits the pending segment,
         // runs it alone, and resumes — ordering relative to later statements that use the value is preserved.
         AddEnumValue x => [new SqlStatement(BuildAddEnumValue(x), RunOutsideTransaction: true)],
+        // Data-migration SQL is user-authored for the target dialect and passed through verbatim.
+        ExecuteDataMigration x => [new SqlStatement(x.Sql, x.RunOutsideTransaction)],
         RecreateRoutine x => BuildRecreateRoutine(RoutineKeyword(x.Routine.Kind), x.SchemaName, x.Routine.Name, x.Routine.Arguments, x.Routine.Definition, x.Routine.Comment),
         RecreateDomain x => BuildRecreateDomain(x),
         _ => [new SqlStatement(GenerateSql(action))],
@@ -170,7 +173,7 @@ internal sealed class PostgresSqlGenerator : ISqlGenerator
         RevokeSchemaUsage x => $"""REVOKE USAGE ON SCHEMA "{x.SchemaName}" FROM {x.Role}""",
         GrantTablePrivileges x => $"""GRANT {PrivilegeList(x.Privileges)} ON TABLE "{x.SchemaName}"."{x.TableName}" TO {x.Role}""",
         RevokeTablePrivileges x => $"""REVOKE ALL PRIVILEGES ON TABLE "{x.SchemaName}"."{x.TableName}" FROM {x.Role}""",
-        _ => throw new ArgumentOutOfRangeException(nameof(action), $"Unhandled action type: {action.GetType().Name}")
+        _ => throw new ArgumentOutOfRangeException(nameof(action), $"Unhandled action type: {action.GetType().Name}. The plan may come from a newer NSchema.Core than this provider supports — check for a provider update.")
     };
 
     private static string BuildCreateTable(CreateTable x)
