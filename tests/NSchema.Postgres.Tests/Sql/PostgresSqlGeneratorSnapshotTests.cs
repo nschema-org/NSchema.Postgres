@@ -6,6 +6,7 @@ using NSchema.Plan.Model.Domains;
 using NSchema.Plan.Model.Enums;
 using NSchema.Plan.Model.Extensions;
 using NSchema.Plan.Model.Indexes;
+using NSchema.Plan.Model.Migrations;
 using NSchema.Plan.Model.Routines;
 using NSchema.Plan.Model.Schemas;
 using NSchema.Plan.Model.Sequence;
@@ -20,6 +21,7 @@ using NSchema.Schema.Model.Domains;
 using NSchema.Schema.Model.Enums;
 using NSchema.Schema.Model.Extensions;
 using NSchema.Schema.Model.Indexes;
+using NSchema.Schema.Model.Migrations;
 using NSchema.Schema.Model.Routines;
 using NSchema.Schema.Model.Scripts;
 using NSchema.Schema.Model.Sequences;
@@ -347,5 +349,35 @@ public sealed class PostgresSqlGeneratorSnapshotTests
 
         plan.Statements.Single(s => s.Sql.Contains("INSERT")).RunOutsideTransaction.ShouldBeFalse();
         plan.Statements.Single(s => s.Sql.Contains("CONCURRENTLY")).RunOutsideTransaction.ShouldBeTrue();
+    }
+
+    // ── Data migrations ───────────────────────────────────────────────────────
+
+    [Fact]
+    public Task DataMigrationOperations() => VerifyPlan(
+        new ExecuteDataMigration("backfill", DataMigrationTrigger.AddColumn, "public", "users", "status",
+            "UPDATE public.users SET status = 'active' WHERE status IS NULL"),
+        new ExecuteDataMigration(null, DataMigrationTrigger.AddConstraint, "public", "users", "uq_users_email",
+            "CREATE UNIQUE INDEX CONCURRENTLY uq_users_email ON public.users (email)")
+        { RunOutsideTransaction = true });
+
+    [Fact]
+    public void DataMigration_SqlIsEmittedVerbatimAndRunOutsideTransactionPropagates()
+    {
+        // The migration body is user-authored SQL for the target dialect, so it must pass through untouched — no
+        // quoting, escaping or rewriting — and run_outside_transaction must carry onto the statement in both states.
+        var inTransaction = new ExecuteDataMigration("backfill", DataMigrationTrigger.AddColumn, "public", "users", "status",
+            """UPDATE public."users" SET status = 'new' WHERE "status" IS NULL -- $body$ left alone""");
+        var outsideTransaction = new ExecuteDataMigration(null, DataMigrationTrigger.AlterColumnType, "public", "users", "id",
+            "CREATE INDEX CONCURRENTLY idx_users_id ON public.users (id)")
+        { RunOutsideTransaction = true };
+
+        var plan = Generator.Generate(new MigrationPlan([inTransaction, outsideTransaction], [], []));
+
+        plan.Statements.Count.ShouldBe(2);
+        plan.Statements[0].Sql.ShouldBe(inTransaction.Sql);
+        plan.Statements[0].RunOutsideTransaction.ShouldBeFalse();
+        plan.Statements[1].Sql.ShouldBe(outsideTransaction.Sql);
+        plan.Statements[1].RunOutsideTransaction.ShouldBeTrue();
     }
 }
