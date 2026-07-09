@@ -358,7 +358,8 @@ public sealed class PostgresSqlGeneratorSnapshotTests
         new ExecuteDataMigration("backfill", DataMigrationTrigger.AddColumn, "public", "users", "status",
             "UPDATE public.users SET status = 'active' WHERE status IS NULL"),
         new ExecuteDataMigration(null, DataMigrationTrigger.AddConstraint, "public", "users", "uq_users_email",
-            "CREATE UNIQUE INDEX CONCURRENTLY uq_users_email ON public.users (email)") { RunOutsideTransaction = true });
+            "CREATE UNIQUE INDEX CONCURRENTLY uq_users_email ON public.users (email)")
+        { RunOutsideTransaction = true });
 
     [Fact]
     public void DataMigration_SqlIsEmittedVerbatimAndRunOutsideTransactionPropagates()
@@ -368,7 +369,8 @@ public sealed class PostgresSqlGeneratorSnapshotTests
         var inTransaction = new ExecuteDataMigration("backfill", DataMigrationTrigger.AddColumn, "public", "users", "status",
             """UPDATE public."users" SET status = 'new' WHERE "status" IS NULL -- $body$ left alone""");
         var outsideTransaction = new ExecuteDataMigration(null, DataMigrationTrigger.AlterColumnType, "public", "users", "id",
-            "CREATE INDEX CONCURRENTLY idx_users_id ON public.users (id)") { RunOutsideTransaction = true };
+            "CREATE INDEX CONCURRENTLY idx_users_id ON public.users (id)")
+        { RunOutsideTransaction = true };
 
         var plan = Generator.Generate(new MigrationPlan([inTransaction, outsideTransaction], [], []));
 
