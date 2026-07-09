@@ -70,4 +70,59 @@ public sealed class PostgresPluginEndToEndTests(PostgresContainerFixture fixture
         table.Name.ShouldBe("widgets");
         table.Columns.Select(column => column.Name).ShouldBe(["id", "name"]);
     }
+
+    [Fact]
+    public async Task Apply_ThenPlanAgain_ShowsNoChanges()
+    {
+        // Arrange — a schema carrying both grant kinds, since the owner's implicit self-grant only materializes
+        // in the ACLs once a real GRANT runs; a phantom "revoke from the owner" on the second plan is the
+        // round-trip drift this locks out.
+        var role = $"role_{Guid.NewGuid():N}";
+        await Exec($"""CREATE ROLE "{role}" """);
+
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(_projectDir, "schema.sql"), $"""
+                CREATE SCHEMA {_schema};
+                GRANT USAGE ON SCHEMA {_schema} TO {role};
+
+                CREATE TABLE {_schema}.widgets (
+                  id bigint NOT NULL,
+                  CONSTRAINT widgets_pkey PRIMARY KEY (id)
+                );
+                GRANT SELECT, INSERT ON {_schema}.widgets TO {role};
+                """, TestContext.Current.CancellationToken);
+
+            var builder = NSchemaApplication.CreateBuilder();
+            new PostgresPlugin().Configure(builder, new ConfigBlock("provider", "postgres", new Dictionary<string, ConfigValue>
+            {
+                ["connection_string"] = ConfigValue.OfString(_fixture.ConnectionString),
+            })).Succeeded.ShouldBeTrue();
+            builder.AddDdlSchemas(_projectDir);
+            using var app = builder.Build();
+
+            // Act — apply the schema, then plan the same desired state again.
+            var first = await app.Operations.Plan(new PlanArguments { Schemas = [_schema], Target = PlanTarget.Live }, TestContext.Current.CancellationToken);
+            first.IsSuccess.ShouldBeTrue();
+            (await app.Operations.Apply(new ApplyArguments { Sql = first.Value!.Sql ?? new SqlPlan([]) }, TestContext.Current.CancellationToken)).IsSuccess.ShouldBeTrue();
+
+            var second = await app.Operations.Plan(new PlanArguments { Schemas = [_schema], Target = PlanTarget.Live }, TestContext.Current.CancellationToken);
+
+            // Assert — a clean cycle plans no further changes.
+            second.IsSuccess.ShouldBeTrue();
+            second.Value!.HasChanges.ShouldBeFalse();
+        }
+        finally
+        {
+            await Exec($"""DROP SCHEMA IF EXISTS "{_schema}" CASCADE; DROP OWNED BY "{role}"; DROP ROLE "{role}" """);
+        }
+    }
+
+    private async Task Exec(string sql)
+    {
+        await using var connection = await _fixture.DataSource.OpenConnectionAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        await command.ExecuteNonQueryAsync();
+    }
 }

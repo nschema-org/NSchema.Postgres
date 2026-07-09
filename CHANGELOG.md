@@ -10,6 +10,12 @@ This package uses **lockstep major versioning** with the core NSchema package: `
 
 As a consequence, breaking changes that are specific to this provider (rather than the core API) are signalled by a **minor version bump** rather than a major one, and called out explicitly in this changelog.
 
+## [4.1.0] - 2026-07-09
+
+### Fixed
+
+- Schema introspection no longer surfaces the schema owner's implicit `USAGE` self-grant, which materializes in the ACL once any schema grant is applied and read as a phantom "revoke from the owner" on the next plan. Table grants already excluded the owner; schema grants now do the same.
+
 ## [4.0.0] - 2026-07-01
 
 ### Added

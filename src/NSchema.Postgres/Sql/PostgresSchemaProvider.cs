@@ -914,6 +914,9 @@ internal sealed class PostgresSchemaProvider(NpgsqlDataSource dataSource) : ISch
     {
         var rows = new List<SchemaGrantRow>();
         await using var cmd = conn.CreateCommand();
+        // The schema owner's implicit self-grant materializes in nspacl as soon as any GRANT runs on the schema.
+        // It is excluded (like the table owner in QueryTableGrants) so it doesn't read as drift against a desired
+        // schema that never declares the owner's own access. PUBLIC (grantee 0) is excluded too.
         cmd.CommandText = """
             SELECT n.nspname AS schema_name,
                    acl.grantee::regrole::text AS role
@@ -924,7 +927,8 @@ internal sealed class PostgresSchemaProvider(NpgsqlDataSource dataSource) : ISch
             AND n.nspname NOT LIKE 'pg\_toast%' ESCAPE '\'
             AND n.nspname NOT LIKE 'pg\_temp%' ESCAPE '\'
             AND acl.privilege_type = 'USAGE'
-            AND acl.grantee != 0
+            AND acl.grantee <> 0
+            AND acl.grantee <> n.nspowner
             """;
         AddSchemasParameter(cmd, schemas);
         await using var reader = await cmd.ExecuteReaderAsync(ct);

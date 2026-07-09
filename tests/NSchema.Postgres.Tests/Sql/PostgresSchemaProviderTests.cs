@@ -575,6 +575,32 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
         check.Comment.ShouldBe("no overdrafts");
     }
 
+    // ── Schema grants ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetSchema_SchemaGrants_ExcludeOwnerImplicitGrants()
+    {
+        // Arrange — granting USAGE to any role materializes nspacl, which includes the owner's implicit
+        // self-grant. That must not surface, or it would read as drift against a desired schema that never
+        // declares the owner's own access.
+        var role = $"role_{Guid.NewGuid():N}";
+        await Exec($"""CREATE ROLE "{role}" """);
+        try
+        {
+            await Exec($"""GRANT USAGE ON SCHEMA "{_schema}" TO "{role}" """);
+
+            // Act
+            var grants = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken)).Schemas[0].Grants;
+
+            // Assert
+            grants.ShouldHaveSingleItem().Role.ShouldBe(role);
+        }
+        finally
+        {
+            await Exec($"""DROP OWNED BY "{role}"; DROP ROLE "{role}" """);
+        }
+    }
+
     // ── Table grants ──────────────────────────────────────────────────────────
 
     [Fact]
