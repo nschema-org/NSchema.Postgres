@@ -1,11 +1,10 @@
-using NSchema.Configuration;
+using NSchema.Plan.Backends;
 using NSchema.Plugins;
-using NSchema.Sql;
 
 namespace NSchema.Postgres.Tests;
 
 /// <summary>
-/// Pins <see cref="PostgresPlugin"/>'s block parsing, environment-override precedence, and validation. The
+/// Pins <see cref="PostgresPlugin"/>'s attribute parsing, environment-override precedence, and validation. The
 /// result-returning <c>Configure</c> aggregates problems instead of throwing, so a misconfigured provider can
 /// be reported rather than aborting. Pure unit tests — no Docker. The <c>NSCHEMA_POSTGRES_*</c> variables are
 /// snapshotted and cleared so a developer's ambient environment cannot make the outcome non-deterministic.
@@ -40,21 +39,8 @@ public sealed class PostgresPluginTests : IDisposable
     }
 
     [Fact]
-    public void Label_IsPostgres() => _sut.Label.ShouldBe("postgres");
-
-    [Fact]
-    public void GetScaffoldTemplate_ReturnsProviderBlock()
-        => _sut.GetScaffoldTemplate(new ScaffoldContext()).ShouldContain("PROVIDER postgres");
-
-    [Fact]
-    public void GetScaffoldTemplate_WithVersion_PinsIt()
-        => _sut.GetScaffoldTemplate(new ScaffoldContext { Version = "9.9.9" }).ShouldContain("version           = '9.9.9',");
-
-    [Fact]
-    public void GetScaffoldTemplate_WithoutVersion_OmitsVersionAttribute()
-        // The host always resolves a version for scaffolding; absent one, the block omits the (required) attribute
-        // rather than emitting an empty pin.
-        => _sut.GetScaffoldTemplate(new ScaffoldContext()).ShouldNotContain("version");
+    public void GetScaffoldTemplate_ReturnsDatabaseStatement()
+        => _sut.GetScaffoldTemplate(new ScaffoldContext()).ShouldContain("DATABASE postgres");
 
     [Fact]
     public void GetSampleSchema_ScaffoldsANamedSchema()
@@ -71,15 +57,15 @@ public sealed class PostgresPluginTests : IDisposable
     {
         // Arrange
         var builder = NSchemaApplication.CreateBuilder();
-        var block = Block(("connection_string", ConfigValue.OfString("Host=localhost;Database=app")));
+        var config = Config(("connection_string", ConfigValue.OfString("Host=localhost;Database=app")));
 
         // Act
-        var result = _sut.Configure(builder, block);
+        var result = _sut.Configure(builder, config);
 
         // Assert
-        result.Succeeded.ShouldBeTrue();
+        result.IsSuccess.ShouldBeTrue();
         result.Errors.ShouldBeEmpty();
-        builder.Services.ShouldContain(d => d.ServiceType == typeof(ISqlGenerator));
+        builder.Services.ShouldContain(d => d.ServiceType == typeof(SqlDialect));
     }
 
     [Fact]
@@ -87,14 +73,14 @@ public sealed class PostgresPluginTests : IDisposable
     {
         // Arrange
         var builder = NSchemaApplication.CreateBuilder();
-        var block = Block();
+        var config = Config();
 
         // Act
-        var result = _sut.Configure(builder, block);
+        var result = _sut.Configure(builder, config);
 
         // Assert
-        result.Succeeded.ShouldBeFalse();
-        result.Errors.ShouldContain(e => e.Contains("connection_string is required"));
+        result.IsFailure.ShouldBeTrue();
+        result.Errors.ShouldContain(e => e.Message.Contains("connection_string is required"));
     }
 
     [Fact]
@@ -102,16 +88,16 @@ public sealed class PostgresPluginTests : IDisposable
     {
         // Arrange
         var builder = NSchemaApplication.CreateBuilder();
-        var block = Block(
+        var config = Config(
             ("connection_string", ConfigValue.OfString("Host=localhost")),
             ("nonsense", ConfigValue.OfString("x")));
 
         // Act
-        var result = _sut.Configure(builder, block);
+        var result = _sut.Configure(builder, config);
 
         // Assert
-        result.Succeeded.ShouldBeFalse();
-        result.Errors.ShouldContain(e => e.Contains("unknown attribute 'nonsense'"));
+        result.IsFailure.ShouldBeTrue();
+        result.Errors.ShouldContain(e => e.Message.Contains("unknown attribute 'nonsense'"));
     }
 
     [Fact]
@@ -119,16 +105,16 @@ public sealed class PostgresPluginTests : IDisposable
     {
         // Arrange
         var builder = NSchemaApplication.CreateBuilder();
-        var block = Block(
+        var config = Config(
             ("connection_string", ConfigValue.OfString("Host=localhost")),
             ("command_timeout", ConfigValue.OfString("soon")));
 
         // Act
-        var result = _sut.Configure(builder, block);
+        var result = _sut.Configure(builder, config);
 
         // Assert
-        result.Succeeded.ShouldBeFalse();
-        result.Errors.ShouldContain(e => e.Contains("command_timeout must be an integer"));
+        result.IsFailure.ShouldBeTrue();
+        result.Errors.ShouldContain(e => e.Message.Contains("command_timeout must be an integer"));
     }
 
     [Fact]
@@ -136,16 +122,16 @@ public sealed class PostgresPluginTests : IDisposable
     {
         // Arrange
         var builder = NSchemaApplication.CreateBuilder();
-        var block = Block(
+        var config = Config(
             ("connection_string", ConfigValue.OfString("Host=localhost")),
             ("command_timeout", ConfigValue.OfInteger(-1)));
 
         // Act
-        var result = _sut.Configure(builder, block);
+        var result = _sut.Configure(builder, config);
 
         // Assert
-        result.Succeeded.ShouldBeFalse();
-        result.Errors.ShouldContain(e => e.Contains("command_timeout must not be negative"));
+        result.IsFailure.ShouldBeTrue();
+        result.Errors.ShouldContain(e => e.Message.Contains("command_timeout must not be negative"));
     }
 
     [Fact]
@@ -153,32 +139,32 @@ public sealed class PostgresPluginTests : IDisposable
     {
         // Arrange — an unknown attribute and no connection string: both must be reported, not just the first.
         var builder = NSchemaApplication.CreateBuilder();
-        var block = Block(("nope", ConfigValue.OfString("x")));
+        var config = Config(("nope", ConfigValue.OfString("x")));
 
         // Act
-        var result = _sut.Configure(builder, block);
+        var result = _sut.Configure(builder, config);
 
         // Assert
-        result.Succeeded.ShouldBeFalse();
-        result.Errors.Count.ShouldBe(2);
+        result.IsFailure.ShouldBeTrue();
+        result.Errors.Count().ShouldBe(2);
     }
 
     [Fact]
-    public void Configure_EnvironmentConnectionString_SatisfiesOmittedBlockAttribute()
+    public void Configure_EnvironmentConnectionString_SatisfiesOmittedAttribute()
     {
         // Arrange
         Environment.SetEnvironmentVariable("NSCHEMA_POSTGRES_CONNECTION_STRING", "Host=env-host;Database=app");
         var builder = NSchemaApplication.CreateBuilder();
-        var block = Block();
+        var config = Config();
 
         // Act
-        var result = _sut.Configure(builder, block);
+        var result = _sut.Configure(builder, config);
 
         // Assert
-        result.Succeeded.ShouldBeTrue();
+        result.IsSuccess.ShouldBeTrue();
         result.Errors.ShouldBeEmpty();
     }
 
-    private static ConfigBlock Block(params (string Key, ConfigValue Value)[] attributes)
-        => new("provider", "postgres", attributes.ToDictionary(a => a.Key, a => a.Value));
+    private static PluginConfig Config(params (string Key, ConfigValue Value)[] attributes)
+        => new("postgres", attributes.ToDictionary(a => new AttributeKey(a.Key), a => a.Value));
 }

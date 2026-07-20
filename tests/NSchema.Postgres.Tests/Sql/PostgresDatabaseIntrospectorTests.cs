@@ -1,26 +1,26 @@
 using Npgsql;
+using NSchema.Model;
+using NSchema.Model.Columns;
+using NSchema.Model.Routines;
+using NSchema.Model.Sequences;
+using NSchema.Model.Tables;
 using NSchema.Postgres.Sql;
 using NSchema.Postgres.Tests.Fixtures;
-using NSchema.Schema.Model.Columns;
-using NSchema.Schema.Model.Routines;
-using NSchema.Schema.Model.Sequences;
-using NSchema.Schema.Model.Tables;
-using NSchema.Schema.Model.Views;
 
 namespace NSchema.Postgres.Tests.Sql;
 
 [Collection("postgres")]
-public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture) : IAsyncLifetime
+public sealed class PostgresDatabaseIntrospectorTests(PostgresContainerFixture fixture) : IAsyncLifetime
 {
     private readonly NpgsqlDataSource _dataSource = fixture.DataSource;
     private readonly string _schema = $"test_{Guid.NewGuid():N}";
     private NpgsqlConnection _connection = null!;
-    private PostgresSchemaProvider _sut = null!;
+    private PostgresDatabaseIntrospector _sut = null!;
 
     public async ValueTask InitializeAsync()
     {
         _connection = await _dataSource.OpenConnectionAsync();
-        _sut = new PostgresSchemaProvider(_dataSource);
+        _sut = new PostgresDatabaseIntrospector(_dataSource);
         await Exec($"CREATE SCHEMA \"{_schema}\"");
     }
 
@@ -37,16 +37,20 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
         await cmd.ExecuteNonQueryAsync();
     }
 
+    /// <summary>Reads the live schema scoped to the given schema names.</summary>
+    private async Task<Database> Introspect(params string[] schemas) =>
+        await _sut.GetDatabase(PlanningScope.To(schemas.Select(s => new SqlIdentifier(s))), TestContext.Current.CancellationToken);
+
     // ── Schema / table structure ──────────────────────────────────────────────
 
     [Fact]
-    public async Task GetSchema_EmptySchema_ReturnsSchemaWithNoTables()
+    public async Task GetDatabase_EmptySchema_ReturnsSchemaWithNoTables()
     {
         // Arrange
         // (schema created in InitializeAsync)
 
         // Act
-        var model = await _sut.GetSchema([_schema], TestContext.Current.CancellationToken);
+        var model = await Introspect(_schema);
 
         // Assert
         model.Schemas.ShouldHaveSingleItem();
@@ -55,7 +59,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_SingleTable_ReturnsTable()
+    public async Task GetDatabase_SingleTable_ReturnsTable()
     {
         // Arrange
         await Exec($"""
@@ -66,7 +70,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var model = await _sut.GetSchema([_schema], TestContext.Current.CancellationToken);
+        var model = await Introspect(_schema);
 
         // Assert
         model.Schemas[0].Tables.ShouldHaveSingleItem();
@@ -76,7 +80,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     // ── Nullability ───────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task GetSchema_Columns_NullabilityMappedCorrectly()
+    public async Task GetDatabase_Columns_NullabilityMappedCorrectly()
     {
         // Arrange
         await Exec($"""
@@ -87,7 +91,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var cols = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var cols = (await Introspect(_schema))
             .Schemas[0].Tables[0].Columns.ToDictionary(c => c.Name);
 
         // Assert
@@ -98,7 +102,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     // ── Type mapping ──────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task GetSchema_Columns_StandardTypesMappedCorrectly()
+    public async Task GetDatabase_Columns_StandardTypesMappedCorrectly()
     {
         // Arrange
         await Exec($"""
@@ -123,7 +127,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var cols = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var cols = (await Introspect(_schema))
             .Schemas[0].Tables[0].Columns.ToDictionary(c => c.Name);
 
         // Assert
@@ -146,7 +150,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_CustomType_MapsToCustomSqlType()
+    public async Task GetDatabase_CustomType_MapsToCustomSqlType()
     {
         // Arrange
         await Exec($"""
@@ -157,7 +161,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var emailCol = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var emailCol = (await Introspect(_schema))
             .Schemas[0].Tables[0].Columns.Single(c => c.Name == "email");
 
         // Assert
@@ -167,7 +171,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     // ── Identity & defaults ───────────────────────────────────────────────────
 
     [Fact]
-    public async Task GetSchema_IdentityColumn_SetsIsIdentityAndClearsDefault()
+    public async Task GetDatabase_IdentityColumn_SetsIsIdentityAndClearsDefault()
     {
         // Arrange
         await Exec($"""
@@ -178,7 +182,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var idCol = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var idCol = (await Introspect(_schema))
             .Schemas[0].Tables[0].Columns.Single(c => c.Name == "id");
 
         // Assert
@@ -187,7 +191,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_ColumnDefault_CapturesExpression()
+    public async Task GetDatabase_ColumnDefault_CapturesExpression()
     {
         // Arrange
         await Exec($"""
@@ -198,18 +202,18 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var statusCol = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var statusCol = (await Introspect(_schema))
             .Schemas[0].Tables[0].Columns.Single(c => c.Name == "status");
 
         // Assert
         statusCol.DefaultExpression.ShouldNotBeNull();
-        statusCol.DefaultExpression!.ShouldContain("active");
+        statusCol.DefaultExpression!.Value.ShouldContain("active");
     }
 
     // ── Primary key ───────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task GetSchema_PrimaryKey_ReturnsPrimaryKey()
+    public async Task GetDatabase_PrimaryKey_ReturnsPrimaryKey()
     {
         // Arrange
         await Exec($"""
@@ -220,7 +224,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var table = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken)).Schemas[0].Tables[0];
+        var table = (await Introspect(_schema)).Schemas[0].Tables[0];
 
         // Assert
         table.PrimaryKey.ShouldNotBeNull();
@@ -229,7 +233,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_CompositePrimaryKey_ReturnsColumnsInOrder()
+    public async Task GetDatabase_CompositePrimaryKey_ReturnsColumnsInOrder()
     {
         // Arrange
         await Exec($"""
@@ -241,7 +245,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var pk = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken)).Schemas[0].Tables[0].PrimaryKey;
+        var pk = (await Introspect(_schema)).Schemas[0].Tables[0].PrimaryKey;
 
         // Assert
         pk.ShouldNotBeNull();
@@ -249,7 +253,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_TableWithNoPrimaryKey_ReturnsNullPrimaryKey()
+    public async Task GetDatabase_TableWithNoPrimaryKey_ReturnsNullPrimaryKey()
     {
         // Arrange
         await Exec($"""
@@ -259,7 +263,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var table = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken)).Schemas[0].Tables[0];
+        var table = (await Introspect(_schema)).Schemas[0].Tables[0];
 
         // Assert
         table.PrimaryKey.ShouldBeNull();
@@ -268,7 +272,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     // ── Foreign keys ──────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task GetSchema_ForeignKey_ReturnsConstraint()
+    public async Task GetDatabase_ForeignKey_ReturnsConstraint()
     {
         // Arrange
         await Exec($"""
@@ -284,7 +288,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var fks = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var fks = (await Introspect(_schema))
             .Schemas[0].Tables.Single(t => t.Name == "users").ForeignKeys;
 
         // Assert
@@ -292,15 +296,14 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
         fks!.ShouldHaveSingleItem();
         fks[0].Name.ShouldBe("fk_users_org");
         fks[0].ColumnNames.ShouldBe(["org_id"]);
-        fks[0].ReferencedSchema.ShouldBe(_schema);
-        fks[0].ReferencedTable.ShouldBe("organisations");
+        fks[0].References.ShouldBe(new ObjectAddress(_schema, "organisations"));
         fks[0].ReferencedColumnNames.ShouldBe(["id"]);
         fks[0].OnDelete.ShouldBe(ReferentialAction.NoAction);
         fks[0].OnUpdate.ShouldBe(ReferentialAction.NoAction);
     }
 
     [Fact]
-    public async Task GetSchema_ForeignKeyOnDelete_MapsReferentialAction()
+    public async Task GetDatabase_ForeignKeyOnDelete_MapsReferentialAction()
     {
         // Arrange
         await Exec($"""
@@ -318,7 +321,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var fk = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var fk = (await Introspect(_schema))
             .Schemas[0].Tables.Single(t => t.Name == "users").ForeignKeys[0];
 
         // Assert
@@ -327,7 +330,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_TableWithNoForeignKeys_ReturnsEmptyForeignKeys()
+    public async Task GetDatabase_TableWithNoForeignKeys_ReturnsEmptyForeignKeys()
     {
         // Arrange
         await Exec($"""
@@ -337,7 +340,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var table = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken)).Schemas[0].Tables[0];
+        var table = (await Introspect(_schema)).Schemas[0].Tables[0];
 
         // Assert
         table.ForeignKeys.ShouldBeEmpty();
@@ -346,7 +349,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     // ── Indexes ───────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task GetSchema_Index_ReturnsIndex()
+    public async Task GetDatabase_Index_ReturnsIndex()
     {
         // Arrange
         await Exec($"""
@@ -358,17 +361,17 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var idx = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var idx = (await Introspect(_schema))
             .Schemas[0].Tables[0].Indexes.Single();
 
         // Assert
         idx.Name.ShouldBe("ix_users_email");
-        idx.Columns.Select(c => c.Expression).ShouldBe(["email"]);
+        idx.Columns.Select(c => c.Column).ShouldBe(["email"]);
         idx.IsUnique.ShouldBeFalse();
     }
 
     [Fact]
-    public async Task GetSchema_UniqueIndex_SetsIsUniqueTrue()
+    public async Task GetDatabase_UniqueIndex_SetsIsUniqueTrue()
     {
         // Arrange
         await Exec($"""
@@ -380,7 +383,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var idx = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var idx = (await Introspect(_schema))
             .Schemas[0].Tables[0].Indexes.Single();
 
         // Assert
@@ -388,7 +391,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_CompositeIndex_ReturnsColumnsInOrder()
+    public async Task GetDatabase_CompositeIndex_ReturnsColumnsInOrder()
     {
         // Arrange
         await Exec($"""
@@ -401,15 +404,15 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var idx = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var idx = (await Introspect(_schema))
             .Schemas[0].Tables[0].Indexes.Single();
 
         // Assert
-        idx.Columns.Select(c => c.Expression).ShouldBe(["user_id", "happened"]);
+        idx.Columns.Select(c => c.Column).ShouldBe(["user_id", "happened"]);
     }
 
     [Fact]
-    public async Task GetSchema_PrimaryKeyIndex_IsNotReturnedAsTableIndex()
+    public async Task GetDatabase_PrimaryKeyIndex_IsNotReturnedAsTableIndex()
     {
         // Arrange
         await Exec($"""
@@ -419,7 +422,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var table = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken)).Schemas[0].Tables[0];
+        var table = (await Introspect(_schema)).Schemas[0].Tables[0];
 
         // Assert
         table.Indexes.ShouldBeEmpty();
@@ -428,7 +431,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     // ── Unique constraints ────────────────────────────────────────────────────
 
     [Fact]
-    public async Task GetSchema_UniqueConstraint_ReturnsConstraint()
+    public async Task GetDatabase_UniqueConstraint_ReturnsConstraint()
     {
         // Arrange
         await Exec($"""
@@ -440,7 +443,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var table = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken)).Schemas[0].Tables[0];
+        var table = (await Introspect(_schema)).Schemas[0].Tables[0];
 
         // Assert
         var unique = table.UniqueConstraints.ShouldHaveSingleItem();
@@ -449,7 +452,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_CompositeUniqueConstraint_ReturnsColumnsInOrder()
+    public async Task GetDatabase_CompositeUniqueConstraint_ReturnsColumnsInOrder()
     {
         // Arrange
         await Exec($"""
@@ -461,7 +464,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var unique = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var unique = (await Introspect(_schema))
             .Schemas[0].Tables[0].UniqueConstraints.Single();
 
         // Assert
@@ -469,7 +472,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_UniqueConstraint_IsNotReturnedAsTableIndex()
+    public async Task GetDatabase_UniqueConstraint_IsNotReturnedAsTableIndex()
     {
         // Arrange — a unique constraint is backed by an index, but it should surface as a constraint, not an index.
         await Exec($"""
@@ -481,7 +484,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var table = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken)).Schemas[0].Tables[0];
+        var table = (await Introspect(_schema)).Schemas[0].Tables[0];
 
         // Assert
         table.UniqueConstraints.ShouldHaveSingleItem();
@@ -491,7 +494,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     // ── Check constraints ─────────────────────────────────────────────────────
 
     [Fact]
-    public async Task GetSchema_CheckConstraint_ReturnsConstraintWithExpression()
+    public async Task GetDatabase_CheckConstraint_ReturnsConstraintWithExpression()
     {
         // Arrange
         await Exec($"""
@@ -503,7 +506,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var check = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var check = (await Introspect(_schema))
             .Schemas[0].Tables[0].CheckConstraints.ShouldHaveSingleItem();
 
         // Assert — the "CHECK (...)" wrapper is stripped, leaving just the predicate.
@@ -514,7 +517,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     // ── Constraint comments ───────────────────────────────────────────────────
 
     [Fact]
-    public async Task GetSchema_PrimaryKeyComment_IsCaptured()
+    public async Task GetDatabase_PrimaryKeyComment_IsCaptured()
     {
         // Arrange
         await Exec($"""
@@ -526,7 +529,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var pk = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken)).Schemas[0].Tables[0].PrimaryKey;
+        var pk = (await Introspect(_schema)).Schemas[0].Tables[0].PrimaryKey;
 
         // Assert
         pk.ShouldNotBeNull();
@@ -534,7 +537,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_UniqueConstraintComment_IsCaptured()
+    public async Task GetDatabase_UniqueConstraintComment_IsCaptured()
     {
         // Arrange
         await Exec($"""
@@ -547,7 +550,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var unique = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var unique = (await Introspect(_schema))
             .Schemas[0].Tables[0].UniqueConstraints.Single();
 
         // Assert
@@ -555,7 +558,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_CheckConstraintComment_IsCaptured()
+    public async Task GetDatabase_CheckConstraintComment_IsCaptured()
     {
         // Arrange
         await Exec($"""
@@ -568,7 +571,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var check = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var check = (await Introspect(_schema))
             .Schemas[0].Tables[0].CheckConstraints.Single();
 
         // Assert
@@ -578,7 +581,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     // ── Schema grants ─────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task GetSchema_SchemaGrants_ExcludeOwnerImplicitGrants()
+    public async Task GetDatabase_SchemaGrants_ExcludeOwnerImplicitGrants()
     {
         // Arrange — granting USAGE to any role materializes nspacl, which includes the owner's implicit
         // self-grant. That must not surface, or it would read as drift against a desired schema that never
@@ -590,7 +593,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             await Exec($"""GRANT USAGE ON SCHEMA "{_schema}" TO "{role}" """);
 
             // Act
-            var grants = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken)).Schemas[0].Grants;
+            var grants = (await Introspect(_schema)).Schemas[0].Grants;
 
             // Assert
             grants.ShouldHaveSingleItem().Role.ShouldBe(role);
@@ -604,7 +607,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     // ── Table grants ──────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task GetSchema_TableGrants_ExcludeOwnerImplicitGrants()
+    public async Task GetDatabase_TableGrants_ExcludeOwnerImplicitGrants()
     {
         // Arrange — the owner implicitly holds all privileges. Those must not surface as grants, or they would read
         // as drift against a desired schema that never declares the owner's own access.
@@ -615,14 +618,14 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var table = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken)).Schemas[0].Tables[0];
+        var table = (await Introspect(_schema)).Schemas[0].Tables[0];
 
         // Assert
         table.Grants.ShouldBeEmpty();
     }
 
     [Fact]
-    public async Task GetSchema_TableGrants_ReturnsExplicitGrantToOtherRole()
+    public async Task GetDatabase_TableGrants_ReturnsExplicitGrantToOtherRole()
     {
         // Arrange — an explicit grant to a non-owner role should be captured.
         var role = $"role_{Guid.NewGuid():N}";
@@ -635,7 +638,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
                 """);
 
             // Act
-            var grants = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+            var grants = (await Introspect(_schema))
                 .Schemas[0].Tables[0].Grants;
 
             // Assert
@@ -650,7 +653,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_ForeignKeyComment_IsCaptured()
+    public async Task GetDatabase_ForeignKeyComment_IsCaptured()
     {
         // Arrange
         await Exec($"""
@@ -666,7 +669,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var fk = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var fk = (await Introspect(_schema))
             .Schemas[0].Tables.Single(t => t.Name == "users").ForeignKeys[0];
 
         // Assert
@@ -676,7 +679,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     // ── Views ─────────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task GetSchema_View_ReturnsViewWithCanonicalDefinition()
+    public async Task GetDatabase_View_ReturnsViewWithCanonicalDefinition()
     {
         // Arrange
         await Exec($"""
@@ -685,18 +688,18 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var view = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var view = (await Introspect(_schema))
             .Schemas[0].Views.ShouldHaveSingleItem();
 
         // Assert — body is the DB's canonical form (no trailing ';'), so apply → plan round-trips clean.
         view.Name.ShouldBe("active_users");
-        view.Body.ShouldContain("SELECT");
-        view.Body.ShouldContain("id");
-        view.Body.TrimEnd().ShouldNotEndWith(";");
+        view.Body.Value.ShouldContain("SELECT");
+        view.Body.Value.ShouldContain("id");
+        view.Body.Value.TrimEnd().ShouldNotEndWith(";");
     }
 
     [Fact]
-    public async Task GetSchema_View_IsNotReturnedAsTable()
+    public async Task GetDatabase_View_IsNotReturnedAsTable()
     {
         // Arrange
         await Exec($"""
@@ -705,7 +708,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var schema = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken)).Schemas[0];
+        var schema = (await Introspect(_schema)).Schemas[0];
 
         // Assert — the view must not leak into the table set.
         schema.Tables.Select(t => t.Name).ShouldBe(["users"]);
@@ -713,7 +716,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_ViewComment_IsCaptured()
+    public async Task GetDatabase_ViewComment_IsCaptured()
     {
         // Arrange
         await Exec($"""
@@ -723,7 +726,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var view = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var view = (await Introspect(_schema))
             .Schemas[0].Views.ShouldHaveSingleItem();
 
         // Assert
@@ -731,7 +734,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_ViewDependencies_CaptureUnderlyingTable()
+    public async Task GetDatabase_ViewDependencies_CaptureUnderlyingTable()
     {
         // Arrange
         await Exec($"""
@@ -740,15 +743,15 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var view = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var view = (await Introspect(_schema))
             .Schemas[0].Views.ShouldHaveSingleItem();
 
         // Assert
-        view.DependsOn.ShouldHaveSingleItem().ShouldBe(new ViewDependency(_schema, "users"));
+        view.DependsOn.ShouldHaveSingleItem().ShouldBe(new ObjectAddress(_schema, "users"));
     }
 
     [Fact]
-    public async Task GetSchema_ViewOnView_CapturesViewDependency()
+    public async Task GetDatabase_ViewOnView_CapturesViewDependency()
     {
         // Arrange — a view reading another view must record the view-to-view dependency for drop ordering.
         await Exec($"""
@@ -758,23 +761,23 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var derived = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var derived = (await Introspect(_schema))
             .Schemas[0].Views.Single(v => v.Name == "active_ids");
 
         // Assert
-        derived.DependsOn.ShouldHaveSingleItem().ShouldBe(new ViewDependency(_schema, "active_users"));
+        derived.DependsOn.ShouldHaveSingleItem().ShouldBe(new ObjectAddress(_schema, "active_users"));
     }
 
     // ── Enums ─────────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task GetSchema_Enum_ReturnsValuesInCreationOrder()
+    public async Task GetDatabase_Enum_ReturnsValuesInCreationOrder()
     {
         // Arrange
         await Exec($"""CREATE TYPE "{_schema}".order_status AS ENUM ('draft', 'active', 'archived')""");
 
         // Act
-        var enumType = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var enumType = (await Introspect(_schema))
             .Schemas[0].Enums.ShouldHaveSingleItem();
 
         // Assert — order is the type's comparison order, not alphabetical.
@@ -783,7 +786,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_EnumComment_IsCaptured()
+    public async Task GetDatabase_EnumComment_IsCaptured()
     {
         // Arrange
         await Exec($"""
@@ -792,7 +795,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var enumType = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var enumType = (await Introspect(_schema))
             .Schemas[0].Enums.ShouldHaveSingleItem();
 
         // Assert
@@ -800,7 +803,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_EnumColumn_MappedAsCustomType()
+    public async Task GetDatabase_EnumColumn_MappedAsCustomType()
     {
         // Arrange — a column typed as a user-defined enum comes back through MapSqlType's fall-through.
         await Exec($"""
@@ -809,7 +812,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var column = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var column = (await Introspect(_schema))
             .Schemas[0].Tables.ShouldHaveSingleItem().Columns.ShouldHaveSingleItem();
 
         // Assert
@@ -819,14 +822,14 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     // ── Sequences ─────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task GetSchema_BareSequence_AllOptionsNull()
+    public async Task GetDatabase_BareSequence_AllOptionsNull()
     {
         // Arrange — the anti-phantom-drift gate: a bare sequence must introspect to all-null options so it
         // compares equal to a bare "CREATE SEQUENCE" declaration in the desired schema.
         await Exec($"""CREATE SEQUENCE "{_schema}".order_id""");
 
         // Act
-        var sequence = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var sequence = (await Introspect(_schema))
             .Schemas[0].Sequences.ShouldHaveSingleItem();
 
         // Assert
@@ -835,13 +838,13 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_DescendingSequence_OnlyIncrementKept()
+    public async Task GetDatabase_DescendingSequence_OnlyIncrementKept()
     {
         // Arrange — a descending sequence's defaults (max -1, min = type min, start = max) must also fold to null.
         await Exec($"""CREATE SEQUENCE "{_schema}".countdown INCREMENT -1""");
 
         // Act
-        var sequence = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var sequence = (await Introspect(_schema))
             .Schemas[0].Sequences.ShouldHaveSingleItem();
 
         // Assert
@@ -849,13 +852,13 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_FullyOptionedSequence_OptionsCaptured()
+    public async Task GetDatabase_FullyOptionedSequence_OptionsCaptured()
     {
         // Arrange — start deliberately differs from minvalue so it is not folded away.
         await Exec($"""CREATE SEQUENCE "{_schema}".order_id AS integer INCREMENT 5 MINVALUE 10 MAXVALUE 1000 START 20 CACHE 10 CYCLE""");
 
         // Act
-        var sequence = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var sequence = (await Introspect(_schema))
             .Schemas[0].Sequences.ShouldHaveSingleItem();
 
         // Assert
@@ -864,7 +867,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_IdentityOwnedSequence_IsExcluded()
+    public async Task GetDatabase_IdentityOwnedSequence_IsExcluded()
     {
         // Arrange — an identity column's backing sequence is the column's implementation detail, not a
         // standalone sequence. The identity options must still round-trip through the columns query.
@@ -875,7 +878,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var schema = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken)).Schemas[0];
+        var schema = (await Introspect(_schema)).Schemas[0];
 
         // Assert
         schema.Sequences.ShouldBeEmpty();
@@ -885,20 +888,20 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_SerialOwnedSequence_IsExcluded()
+    public async Task GetDatabase_SerialOwnedSequence_IsExcluded()
     {
         // Arrange — serial's sequence is owned by the column (pg_depend deptype 'a').
         await Exec($"""CREATE TABLE "{_schema}".users (id SERIAL)""");
 
         // Act
-        var schema = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken)).Schemas[0];
+        var schema = (await Introspect(_schema)).Schemas[0];
 
         // Assert
         schema.Sequences.ShouldBeEmpty();
     }
 
     [Fact]
-    public async Task GetSchema_SequenceComment_IsCaptured()
+    public async Task GetDatabase_SequenceComment_IsCaptured()
     {
         // Arrange
         await Exec($"""
@@ -907,7 +910,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var sequence = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var sequence = (await Introspect(_schema))
             .Schemas[0].Sequences.ShouldHaveSingleItem();
 
         // Assert
@@ -917,7 +920,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     // ── Functions & procedures ────────────────────────────────────────────────
 
     [Fact]
-    public async Task GetSchema_Function_ReturnsArgumentsAndDefinition()
+    public async Task GetDatabase_Function_ReturnsArgumentsAndDefinition()
     {
         // Arrange
         await Exec($"""
@@ -926,20 +929,20 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var function = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var function = (await Introspect(_schema))
             .Schemas[0].Routines.ShouldHaveSingleItem();
 
         // Assert — both parts are the DB's canonical form: the argument list as pg_get_function_arguments renders
         // it, and the definition starting right after the CREATE header (at RETURNS).
         function.Name.ShouldBe("add_numbers");
         function.Arguments.ShouldBe("a integer, b integer");
-        function.Definition.ShouldStartWith("RETURNS integer");
-        function.Definition.ShouldContain("LANGUAGE sql");
-        function.Definition.ShouldContain("SELECT a + b");
+        function.Definition.Value.ShouldStartWith("RETURNS integer");
+        function.Definition.Value.ShouldContain("LANGUAGE sql");
+        function.Definition.Value.ShouldContain("SELECT a + b");
     }
 
     [Fact]
-    public async Task GetSchema_FunctionWithParenthesisedDefault_HeaderStripSurvives()
+    public async Task GetDatabase_FunctionWithParenthesisedDefault_HeaderStripSurvives()
     {
         // Arrange — a default containing parentheses would defeat any "cut at the first ')'" parsing; the header
         // strip must be driven by the rendered argument list instead.
@@ -949,32 +952,32 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var function = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var function = (await Introspect(_schema))
             .Schemas[0].Routines.ShouldHaveSingleItem();
 
         // Assert
-        function.Arguments.ShouldStartWith("value text DEFAULT repeat(");
-        function.Definition.ShouldStartWith("RETURNS text");
+        function.Arguments.Value.ShouldStartWith("value text DEFAULT repeat(");
+        function.Definition.Value.ShouldStartWith("RETURNS text");
     }
 
     [Fact]
-    public async Task GetSchema_QuotedFunctionName_HeaderStripSurvives()
+    public async Task GetDatabase_QuotedFunctionName_HeaderStripSurvives()
     {
         // Arrange — a mixed-case name is quoted in the pg_get_functiondef header; the strip must match that form.
         await Exec($"""CREATE FUNCTION "{_schema}"."GetAnswer"() RETURNS integer LANGUAGE sql AS $$ SELECT 42 $$""");
 
         // Act
-        var function = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var function = (await Introspect(_schema))
             .Schemas[0].Routines.ShouldHaveSingleItem();
 
         // Assert
         function.Name.ShouldBe("GetAnswer");
         function.Arguments.ShouldBe("");
-        function.Definition.ShouldStartWith("RETURNS integer");
+        function.Definition.Value.ShouldStartWith("RETURNS integer");
     }
 
     [Fact]
-    public async Task GetSchema_FunctionComment_IsCaptured()
+    public async Task GetDatabase_FunctionComment_IsCaptured()
     {
         // Arrange
         await Exec($"""
@@ -983,7 +986,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var function = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var function = (await Introspect(_schema))
             .Schemas[0].Routines.ShouldHaveSingleItem();
 
         // Assert
@@ -991,25 +994,25 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_Procedure_ReturnedAsProcedureNotFunction()
+    public async Task GetDatabase_Procedure_ReturnedAsProcedureNotFunction()
     {
         // Arrange
         await Exec($"""CREATE PROCEDURE "{_schema}".noop(a integer) LANGUAGE sql AS $$ SELECT 1 $$""");
 
         // Act
-        var schema = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken)).Schemas[0];
+        var schema = (await Introspect(_schema)).Schemas[0];
 
         // Assert — prokind is carried as Routine.Kind; a procedure must be tagged Procedure, not Function.
         var procedure = schema.Routines.ShouldHaveSingleItem();
-        procedure.Kind.ShouldBe(RoutineKind.Procedure);
+        procedure.RoutineKind.ShouldBe(RoutineKind.Procedure);
         procedure.Name.ShouldBe("noop");
         procedure.Arguments.ShouldBe("a integer");
-        procedure.Definition.ShouldStartWith("LANGUAGE sql");
-        procedure.Definition.ShouldContain("SELECT 1");
+        procedure.Definition.Value.ShouldStartWith("LANGUAGE sql");
+        procedure.Definition.Value.ShouldContain("SELECT 1");
     }
 
     [Fact]
-    public async Task GetSchema_ProcedureComment_IsCaptured()
+    public async Task GetDatabase_ProcedureComment_IsCaptured()
     {
         // Arrange
         await Exec($"""
@@ -1018,23 +1021,23 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
             """);
 
         // Act
-        var procedure = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken))
+        var procedure = (await Introspect(_schema))
             .Schemas[0].Routines.ShouldHaveSingleItem();
 
         // Assert
-        procedure.Kind.ShouldBe(RoutineKind.Procedure);
+        procedure.RoutineKind.ShouldBe(RoutineKind.Procedure);
         procedure.Comment.ShouldBe("does nothing");
     }
 
     [Fact]
-    public async Task GetSchema_ExtensionFunctions_AreExcluded()
+    public async Task GetDatabase_ExtensionFunctions_AreExcluded()
     {
         // Arrange — the fixture enables citext in public, which installs dozens of support functions. They are the
         // extension's implementation detail and must not surface, or they would read as drift to drop.
         // (Nothing else in the suite creates routines in public.)
 
         // Act
-        var publicSchema = (await _sut.GetSchema(["public"], TestContext.Current.CancellationToken))
+        var publicSchema = (await Introspect("public"))
             .Schemas.Single(s => s.Name == "public");
 
         // Assert
@@ -1042,26 +1045,26 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task GetSchema_Aggregate_IsNotReturnedAsFunction()
+    public async Task GetDatabase_Aggregate_IsNotReturnedAsFunction()
     {
         // Arrange — an aggregate is a pg_proc row too (prokind 'a'), but it is not part of the model.
         await Exec($"""CREATE AGGREGATE "{_schema}".int_sum (integer) (sfunc = int4pl, stype = integer)""");
 
         // Act
-        var schema = (await _sut.GetSchema([_schema], TestContext.Current.CancellationToken)).Schemas[0];
+        var schema = (await Introspect(_schema)).Schemas[0];
 
         // Assert
         schema.Routines.ShouldBeEmpty();
     }
 
     [Fact]
-    public async Task GetSchema_Extensions_AreReportedAtRootWithVersion()
+    public async Task GetDatabase_Extensions_AreReportedAtRootWithVersion()
     {
         // Arrange — the fixture enables citext database-wide; extensions are global, so a schema-scoped read still
         // surfaces them at the root. plpgsql (the always-present default) is excluded.
 
         // Act
-        var schema = await _sut.GetSchema([_schema], TestContext.Current.CancellationToken);
+        var schema = await Introspect(_schema);
 
         // Assert
         var citext = schema.Extensions.Single(e => e.Name == "citext");
@@ -1075,7 +1078,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
     // two schemas matched both pg_class rows and fanned every column row out once per schema — columns appeared
     // duplicated in each table. Each table must report only its own columns.
     [Fact]
-    public async Task GetSchema_SameTableNameInDifferentSchemas_DoesNotDuplicateColumns()
+    public async Task GetDatabase_SameTableNameInDifferentSchemas_DoesNotDuplicateColumns()
     {
         // Arrange
         var other = $"test_{Guid.NewGuid():N}";
@@ -1096,7 +1099,7 @@ public sealed class PostgresSchemaProviderTests(PostgresContainerFixture fixture
                 """);
 
             // Act
-            var model = await _sut.GetSchema([_schema, other], TestContext.Current.CancellationToken);
+            var model = await Introspect(_schema, other);
 
             // Assert
             var primary = model.Schemas.Single(s => s.Name == _schema).Tables.Single(t => t.Name == "users");
