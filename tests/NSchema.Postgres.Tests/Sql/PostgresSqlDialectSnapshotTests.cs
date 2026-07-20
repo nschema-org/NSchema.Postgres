@@ -1,3 +1,4 @@
+using NSchema.Diff.Model;
 using NSchema.Model;
 using NSchema.Model.Columns;
 using NSchema.Model.CompositeTypes;
@@ -91,6 +92,41 @@ public sealed class PostgresSqlDialectSnapshotTests
         }));
 
     [Fact]
+    public Task CreateTable_WithInlineConstraints() => VerifyActions(
+        // A newly-created table carries every constraint inline: primary key, unique, check, foreign key, and
+        // Postgres's exclusion constraint — the linearizer folds these into CREATE TABLE rather than emitting adds.
+        new CreateTable("public", new Table
+        {
+            Name = "bookings",
+            PrimaryKey = new PrimaryKey { Name = "pk_bookings", ColumnNames = ["id"] },
+            Columns =
+            [
+                new Column { Name = "id", Type = SqlType.BigInt, IsNullable = false, IsIdentity = true },
+                new Column { Name = "room_id", Type = SqlType.BigInt, IsNullable = false },
+                new Column { Name = "code", Type = SqlType.VarChar(20), IsNullable = false },
+                new Column { Name = "guests", Type = SqlType.Int, IsNullable = false },
+                new Column { Name = "during", Type = new SqlType("tsrange"), IsNullable = false },
+            ],
+            UniqueConstraints = [new UniqueConstraint { Name = "uq_bookings_code", ColumnNames = ["code"] }],
+            CheckConstraints = [new CheckConstraint { Name = "ck_bookings_guests", Expression = "guests > 0" }],
+            ForeignKeys =
+            [
+                new ForeignKey
+                {
+                    Name = "fk_bookings_room",
+                    ColumnNames = ["room_id"],
+                    References = new ObjectAddress("public", "rooms"),
+                    ReferencedColumnNames = ["id"],
+                    OnDelete = ReferentialAction.Cascade,
+                },
+            ],
+            ExclusionConstraints =
+            [
+                new ExclusionConstraint { Name = "no_overlap", Elements = [new ExclusionElement("&&", "during")], Method = "gist" },
+            ],
+        }));
+
+    [Fact]
     public Task TableLifecycle() => VerifyActions(
         new RenameTable(new ObjectAddress("public", "old_users"), "users"),
         new DropTable(new ObjectAddress("public", "legacy")));
@@ -101,9 +137,8 @@ public sealed class PostgresSqlDialectSnapshotTests
     public Task ColumnOperations() => VerifyActions(
         new AddColumn(new ObjectAddress("public", "users"), new Column { Name = "age", Type = SqlType.Int }),
         new RenameColumn(new MemberAddress("public", "users", "age"), "years"),
-        new AlterColumnType(new MemberAddress("public", "users", "years"), SqlType.Int, SqlType.BigInt),
-        new AlterColumnNullability(new MemberAddress("public", "users", "years"), OldNullable: true, NewNullable: false),
-        new AlterColumnNullability(new MemberAddress("public", "users", "notes"), OldNullable: false, NewNullable: true),
+        new AlterColumn(new ObjectAddress("public", "users"), new Column { Name = "years", Type = SqlType.BigInt }, Type: new(SqlType.Int, SqlType.BigInt), Nullability: new(true, false)),
+        new AlterColumn(new ObjectAddress("public", "users"), new Column { Name = "notes", Type = SqlType.Text, IsNullable = true }, Nullability: new(false, true)),
         new SetColumnDefault(new MemberAddress("public", "users", "years"), null, "0"),
         new SetColumnDefault(new MemberAddress("public", "users", "years"), "0", null),
         new DropColumn(new ObjectAddress("public", "users"), new Column { Name = "years", Type = SqlType.BigInt }));
@@ -405,8 +440,8 @@ public sealed class PostgresSqlDialectSnapshotTests
         // A schema-qualified user-defined type (e.g. a domain outside the search path) renders qualified.
         Alter(SqlType.Custom("app", "order_status")));
 
-    private static AlterColumnType Alter(SqlType type) =>
-        new(new MemberAddress("public", "t", "c"), SqlType.Int, type);
+    private static AlterColumn Alter(SqlType type) =>
+        new(new ObjectAddress("public", "t"), new Column { Name = "c", Type = type }, Type: new(SqlType.Int, type));
 
     // ── Scripts ───────────────────────────────────────────────────────────────
 
@@ -418,7 +453,7 @@ public sealed class PostgresSqlDialectSnapshotTests
         // (e.g. CREATE INDEX CONCURRENTLY, which Postgres forbids inside a transaction).
         var ordinary = new ChangeScript("backfill",
             """UPDATE public."users" SET status = 'new' WHERE "status" IS NULL -- $body$ left alone""",
-            ScopeSchema: "public", ChangeTrigger.AddColumn, "users", "status");
+            new ChangeTarget("public", "users", "status", ChangeTrigger.AddColumn));
         var concurrent = new DeploymentScript("reindex", "CREATE INDEX CONCURRENTLY i ON s.t (c)", ScopeSchema: null, DeploymentPhase.Post)
         {
             RunOutsideTransaction = true,

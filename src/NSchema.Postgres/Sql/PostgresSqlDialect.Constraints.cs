@@ -8,17 +8,20 @@ internal sealed partial class PostgresSqlDialect
 {
     // ── Constraints ───────────────────────────────────────────────────────────
 
-    protected override Result<IReadOnlyList<SqlStatement>> AddExclusionConstraint(AddExclusionConstraint action)
-    {
-        var exclusion = action.ExclusionConstraint;
-        var method = exclusion.Method is { } m ? $" USING {m.Value}" : "";
-        var elements = string.Join(", ", exclusion.Elements.Select(ExclusionElementText));
-        var where = exclusion.Predicate is { } p ? $" WHERE ({p.Value})" : "";
-        return Statement($"ALTER TABLE {Qualify(action.Table)} ADD CONSTRAINT {Quote(exclusion.Name)} EXCLUDE{method} ({elements}){where}");
-    }
+    protected override Result<IReadOnlyList<SqlStatement>> AddExclusionConstraint(AddExclusionConstraint action) =>
+        Statement($"ALTER TABLE {Qualify(action.Table)} ADD {ExclusionConstraintClause(action.ExclusionConstraint)}");
 
     protected override Result<IReadOnlyList<SqlStatement>> DropExclusionConstraint(DropExclusionConstraint action) =>
         Statement($"ALTER TABLE {Qualify(action.Constraint.Owner)} DROP CONSTRAINT {Quote(action.Constraint.Member)}");
+
+    // The CONSTRAINT … EXCLUDE (…) clause, used inline in a CREATE TABLE and by the ALTER add.
+    private string ExclusionConstraintClause(ExclusionConstraint exclusion)
+    {
+        var method = exclusion.Method is { } m ? $" USING {m.Value}" : "";
+        var elements = string.Join(", ", exclusion.Elements.Select(ExclusionElementText));
+        var where = exclusion.Predicate is { } p ? $" WHERE ({p.Value})" : "";
+        return $"CONSTRAINT {Quote(exclusion.Name)} EXCLUDE{method} ({elements}){where}";
+    }
 
     protected override Result<IReadOnlyList<SqlStatement>> SetConstraintComment(SetConstraintComment action) =>
         Comment($"CONSTRAINT {Quote(action.Constraint.Member)} ON {Qualify(action.Constraint.Owner)}", action.NewComment);

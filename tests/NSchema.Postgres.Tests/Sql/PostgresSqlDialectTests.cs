@@ -1,4 +1,5 @@
 using Npgsql;
+using NSchema.Diff.Model;
 using NSchema.Model;
 using NSchema.Model.Columns;
 using NSchema.Model.CompositeTypes;
@@ -256,13 +257,13 @@ public sealed class PostgresSqlDialectTests(PostgresContainerFixture fixture) : 
     }
 
     [Fact]
-    public async Task AlterColumnType_ChangesColumnDataType()
+    public async Task AlterColumn_ChangesColumnDataType()
     {
         // Arrange
         await Exec($"""CREATE TABLE "{_schema}"."items" (id integer, value integer)""");
 
         // Act
-        await Run(new AlterColumnType(Member("items", "value"), SqlType.Int, SqlType.BigInt));
+        await Run(new AlterColumn(Obj("items"), new Column { Name = "value", Type = SqlType.BigInt }, Type: new(SqlType.Int, SqlType.BigInt)));
 
         // Assert
         var dataType = await ScalarString(
@@ -271,13 +272,13 @@ public sealed class PostgresSqlDialectTests(PostgresContainerFixture fixture) : 
     }
 
     [Fact]
-    public async Task AlterColumnNullability_MakesColumnNotNull()
+    public async Task AlterColumn_MakesColumnNotNull()
     {
         // Arrange
         await Exec($"""CREATE TABLE "{_schema}"."items" (id integer, name text)""");
 
         // Act
-        await Run(new AlterColumnNullability(Member("items", "name"), OldNullable: true, NewNullable: false));
+        await Run(new AlterColumn(Obj("items"), new Column { Name = "name", Type = SqlType.Text }, Nullability: new(true, false)));
 
         // Assert
         var isNullable = await ScalarString(
@@ -286,13 +287,13 @@ public sealed class PostgresSqlDialectTests(PostgresContainerFixture fixture) : 
     }
 
     [Fact]
-    public async Task AlterColumnNullability_MakesColumnNullable()
+    public async Task AlterColumn_MakesColumnNullable()
     {
         // Arrange
         await Exec($"""CREATE TABLE "{_schema}"."items" (id integer, name text NOT NULL)""");
 
         // Act
-        await Run(new AlterColumnNullability(Member("items", "name"), OldNullable: false, NewNullable: true));
+        await Run(new AlterColumn(Obj("items"), new Column { Name = "name", Type = SqlType.Text, IsNullable = true }, Nullability: new(false, true)));
 
         // Assert
         var isNullable = await ScalarString(

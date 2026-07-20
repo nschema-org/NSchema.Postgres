@@ -10,13 +10,16 @@ internal sealed partial class PostgresSqlDialect
     protected override Result<IReadOnlyList<SqlStatement>> AddColumn(AddColumn action) =>
         Statement($"ALTER TABLE {Qualify(action.Table)} ADD COLUMN {BuildColumnDef(action.Column)}");
 
-    protected override Result<IReadOnlyList<SqlStatement>> AlterColumnType(AlterColumnType action) =>
-        Statement($"ALTER TABLE {Qualify(action.Column.Owner)} ALTER COLUMN {Quote(action.Column.Member)} TYPE {ToPostgresType(action.NewType)}");
-
-    protected override Result<IReadOnlyList<SqlStatement>> AlterColumnNullability(AlterColumnNullability action) =>
-        Statement(action.NewNullable
-            ? $"ALTER TABLE {Qualify(action.Column.Owner)} ALTER COLUMN {Quote(action.Column.Member)} DROP NOT NULL"
-            : $"ALTER TABLE {Qualify(action.Column.Owner)} ALTER COLUMN {Quote(action.Column.Member)} SET NOT NULL");
+    protected override Result<IReadOnlyList<SqlStatement>> AlterColumn(AlterColumn action) =>
+        (action.Type, action.Nullability) switch
+        {
+            ({ } type, { } nullability) => Statements(
+                new($"ALTER TABLE {Qualify(action.Table)} ALTER COLUMN {Quote(action.Column.Name)} TYPE {ToPostgresType(type.New!)}"),
+                new($"ALTER TABLE {Qualify(action.Table)} ALTER COLUMN {Quote(action.Column.Name)} {(nullability.New! ? "DROP" : "SET")} NOT NULL")),
+            ({ } type, null) => Statement($"ALTER TABLE {Qualify(action.Table)} ALTER COLUMN {Quote(action.Column.Name)} TYPE {ToPostgresType(type.New!)}"),
+            (null, { } nullability) => Statement($"ALTER TABLE {Qualify(action.Table)} ALTER COLUMN {Quote(action.Column.Name)} {(nullability.New! ? "DROP" : "SET")} NOT NULL"),
+            _ => Statements(),
+        };
 
     protected override Result<IReadOnlyList<SqlStatement>> AlterIdentitySequence(AlterIdentitySequence action)
     {

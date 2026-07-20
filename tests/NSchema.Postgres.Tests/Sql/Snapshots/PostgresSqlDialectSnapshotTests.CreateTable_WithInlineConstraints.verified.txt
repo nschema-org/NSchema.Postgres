@@ -1,0 +1,18 @@
+﻿[
+  {
+    Sql:
+CREATE TABLE "public"."bookings" (
+    "id" bigint NOT NULL GENERATED ALWAYS AS IDENTITY,
+    "room_id" bigint NOT NULL,
+    "code" character varying(20) NOT NULL,
+    "guests" integer NOT NULL,
+    "during" tsrange NOT NULL,
+    CONSTRAINT "pk_bookings" PRIMARY KEY ("id"),
+    CONSTRAINT "uq_bookings_code" UNIQUE ("code"),
+    CONSTRAINT "ck_bookings_guests" CHECK (guests > 0),
+    CONSTRAINT "fk_bookings_room" FOREIGN KEY ("room_id") REFERENCES "public"."rooms" ("id") ON DELETE CASCADE,
+    CONSTRAINT "no_overlap" EXCLUDE USING gist ("during" WITH &&)
+),
+    RunOutsideTransaction: false
+  }
+]
