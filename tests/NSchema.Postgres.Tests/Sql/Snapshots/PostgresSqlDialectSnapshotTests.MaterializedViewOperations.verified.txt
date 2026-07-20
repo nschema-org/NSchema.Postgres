@@ -1,0 +1,22 @@
+﻿[
+  {
+    Sql: CREATE MATERIALIZED VIEW "public"."daily_totals" AS SELECT date, sum(amount) AS total FROM public.sales GROUP BY date,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: CREATE UNIQUE INDEX "idx_daily_totals_date" ON "public"."daily_totals" ("date"),
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER MATERIALIZED VIEW "public"."legacy_totals" RENAME TO "daily_totals",
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: COMMENT ON MATERIALIZED VIEW "public"."daily_totals" IS $comment$Daily rollup$comment$,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: DROP MATERIALIZED VIEW "public"."daily_totals",
+    RunOutsideTransaction: false
+  }
+]

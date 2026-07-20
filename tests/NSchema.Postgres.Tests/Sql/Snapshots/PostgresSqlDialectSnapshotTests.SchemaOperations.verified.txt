@@ -1,0 +1,14 @@
+﻿[
+  {
+    Sql: CREATE SCHEMA IF NOT EXISTS "sales",
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER SCHEMA "sales" RENAME TO "commerce",
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: DROP SCHEMA "commerce",
+    RunOutsideTransaction: false
+  }
+]

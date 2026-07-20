@@ -1,0 +1,22 @@
+﻿[
+  {
+    Sql: GRANT USAGE ON SCHEMA "public" TO "app_role",
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: GRANT SELECT, INSERT ON "public"."users" TO "app_role",
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: GRANT SELECT ON "public"."users" TO "readonly",
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: REVOKE SELECT, INSERT, UPDATE, DELETE ON "public"."users" FROM "app_role",
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: REVOKE USAGE ON SCHEMA "public" FROM "app_role",
+    RunOutsideTransaction: false
+  }
+]

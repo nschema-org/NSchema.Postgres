@@ -1,0 +1,34 @@
+﻿[
+  {
+    Sql: CREATE TYPE "public"."order_status" AS ENUM ('pending', 'shipped', 'won''t_ship'),
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TYPE "public"."order_state" RENAME TO "order_status",
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TYPE "public"."order_status" ADD VALUE 'delivered',
+    RunOutsideTransaction: true
+  },
+  {
+    Sql: ALTER TYPE "public"."order_status" ADD VALUE 'draft' BEFORE 'pending',
+    RunOutsideTransaction: true
+  },
+  {
+    Sql: ALTER TYPE "public"."order_status" ADD VALUE 'in_transit' AFTER 'shipped',
+    RunOutsideTransaction: true
+  },
+  {
+    Sql: COMMENT ON TYPE "public"."order_status" IS $comment$Order lifecycle$comment$,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: COMMENT ON TYPE "public"."order_status" IS NULL,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: DROP TYPE "public"."order_status",
+    RunOutsideTransaction: false
+  }
+]

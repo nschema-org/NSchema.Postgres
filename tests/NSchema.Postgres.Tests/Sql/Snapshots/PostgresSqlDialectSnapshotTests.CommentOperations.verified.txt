@@ -1,0 +1,22 @@
+﻿[
+  {
+    Sql: COMMENT ON SCHEMA "public" IS $comment$Application schema$comment$,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: COMMENT ON TABLE "public"."users" IS $comment$Registered users$comment$,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: COMMENT ON COLUMN "public"."users"."email" IS $comment$Unique login address$comment$,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: COMMENT ON INDEX "public"."idx_users_email" IS $comment$Lookup by email$comment$,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: COMMENT ON TABLE "public"."users" IS NULL,
+    RunOutsideTransaction: false
+  }
+]

@@ -1,0 +1,34 @@
+﻿[
+  {
+    Sql: ALTER TABLE "public"."users" ADD COLUMN "age" integer NOT NULL,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."users" RENAME COLUMN "age" TO "years",
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."users" ALTER COLUMN "years" TYPE bigint,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."users" ALTER COLUMN "years" SET NOT NULL,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."users" ALTER COLUMN "notes" DROP NOT NULL,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."users" ALTER COLUMN "years" SET DEFAULT 0,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."users" ALTER COLUMN "years" DROP DEFAULT,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."users" DROP COLUMN "years",
+    RunOutsideTransaction: false
+  }
+]

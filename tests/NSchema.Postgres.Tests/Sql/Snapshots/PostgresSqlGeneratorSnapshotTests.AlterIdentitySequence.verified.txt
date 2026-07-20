@@ -1,9 +1,0 @@
-﻿{
-  Statements: [
-    {
-      Sql: ALTER TABLE "public"."users" ALTER COLUMN "id" SET MINVALUE 100 SET START 500 SET INCREMENT BY 2 RESTART,
-      RunOutsideTransaction: false
-    }
-  ],
-  IsEmpty: false
-}
