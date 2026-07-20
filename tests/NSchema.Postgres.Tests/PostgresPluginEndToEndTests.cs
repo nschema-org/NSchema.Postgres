@@ -1,15 +1,14 @@
-using NSchema.Configuration;
-using NSchema.Operations.Apply;
-using NSchema.Operations.Plan;
+using NSchema.Model;
+using NSchema.Operations;
+using NSchema.Plugins;
 using NSchema.Postgres.Sql;
 using NSchema.Postgres.Tests.Fixtures;
-using NSchema.Sql.Model;
 
 namespace NSchema.Postgres.Tests;
 
 /// <summary>
 /// End-to-end proof that the <see cref="PostgresPlugin"/> manifest wires a fully working provider: it runs a real
-/// migration THROUGH the plugin's <c>Configure</c> (not the direct <c>UseCurrentSchemaPostgres</c> API) against a real
+/// migration THROUGH the plugin's <c>Configure</c> (not the direct <c>UsePostgres</c> API) against a real
 /// PostgreSQL container, then re-introspects to confirm the schema was applied. Requires Docker.
 /// </summary>
 [Collection("postgres")]
@@ -49,23 +48,14 @@ public sealed class PostgresPluginEndToEndTests(PostgresContainerFixture fixture
             );
             """, TestContext.Current.CancellationToken);
 
-        var builder = NSchemaApplication.CreateBuilder();
-        var configured = new PostgresPlugin().Configure(builder, new ConfigBlock("provider", "postgres", new Dictionary<string, ConfigValue>
-        {
-            ["connection_string"] = ConfigValue.OfString(_fixture.ConnectionString),
-        }));
-        configured.Succeeded.ShouldBeTrue();
+        using var app = BuildApp();
 
-        builder.AddDdlSchemas(_projectDir);
-        using var app = builder.Build();
-
-        // Act — a real plan + apply through the plugin-wired provider.
-        var planResult = await app.Operations.Plan(new PlanArguments { Schemas = [_schema], Target = PlanTarget.Live }, TestContext.Current.CancellationToken);
-        planResult.IsSuccess.ShouldBeTrue();
-        await app.Operations.Apply(new ApplyArguments { Sql = planResult.Value!.Sql ?? new SqlPlan([]) }, TestContext.Current.CancellationToken);
+        // Act — a real refresh + plan + apply through the plugin-wired provider.
+        var plan = await Plan(app);
+        (await app.Operations.Apply(new ApplyArguments { Plan = plan }, TestContext.Current.CancellationToken)).IsSuccess.ShouldBeTrue();
 
         // Assert — the table really exists, read back via a fresh introspection.
-        var live = await new PostgresSchemaProvider(_fixture.DataSource).GetSchema([_schema], TestContext.Current.CancellationToken);
+        var live = await Introspect();
         var table = live.Schemas.ShouldHaveSingleItem().Tables.ShouldHaveSingleItem();
         table.Name.ShouldBe("widgets");
         table.Columns.Select(column => column.Name).ShouldBe(["id", "name"]);
@@ -93,20 +83,13 @@ public sealed class PostgresPluginEndToEndTests(PostgresContainerFixture fixture
                 GRANT SELECT, INSERT ON {_schema}.widgets TO {role};
                 """, TestContext.Current.CancellationToken);
 
-            var builder = NSchemaApplication.CreateBuilder();
-            new PostgresPlugin().Configure(builder, new ConfigBlock("provider", "postgres", new Dictionary<string, ConfigValue>
-            {
-                ["connection_string"] = ConfigValue.OfString(_fixture.ConnectionString),
-            })).Succeeded.ShouldBeTrue();
-            builder.AddDdlSchemas(_projectDir);
-            using var app = builder.Build();
+            using var app = BuildApp();
 
             // Act — apply the schema, then plan the same desired state again.
-            var first = await app.Operations.Plan(new PlanArguments { Schemas = [_schema], Target = PlanTarget.Live }, TestContext.Current.CancellationToken);
-            first.IsSuccess.ShouldBeTrue();
-            (await app.Operations.Apply(new ApplyArguments { Sql = first.Value!.Sql ?? new SqlPlan([]) }, TestContext.Current.CancellationToken)).IsSuccess.ShouldBeTrue();
+            var first = await Plan(app);
+            (await app.Operations.Apply(new ApplyArguments { Plan = first }, TestContext.Current.CancellationToken)).IsSuccess.ShouldBeTrue();
 
-            var second = await app.Operations.Plan(new PlanArguments { Schemas = [_schema], Target = PlanTarget.Live }, TestContext.Current.CancellationToken);
+            var second = await app.Operations.Plan(new PlanArguments(), TestContext.Current.CancellationToken);
 
             // Assert — a clean cycle plans no further changes.
             second.IsSuccess.ShouldBeTrue();
@@ -119,10 +102,10 @@ public sealed class PostgresPluginEndToEndTests(PostgresContainerFixture fixture
     }
 
     [Fact]
-    public async Task Apply_WithDataMigration_BackfillsThenTightensToNotNull()
+    public async Task Apply_WithChangeScript_BackfillsThenTightensToNotNull()
     {
         // Arrange — a live table that already holds rows, and a desired schema adding a NOT NULL column with no
-        // default plus the MIGRATION block that backfills it. The core decomposes the add (nullable add → backfill
+        // default plus the SCRIPT that backfills it. The core decomposes the add (nullable add → backfill
         // → SET NOT NULL) and the provider must run the backfill SQL verbatim, so the apply succeeds against the
         // populated table.
         await Exec($"""
@@ -140,30 +123,51 @@ public sealed class PostgresPluginEndToEndTests(PostgresContainerFixture fixture
               CONSTRAINT widgets_pkey PRIMARY KEY (id)
             );
 
-            MIGRATION 'backfill' FOR ADD COLUMN {_schema}.widgets.status AS $$
+            SCRIPT backfill RUN ON ADD COLUMN {_schema}.widgets.status AS $$
               UPDATE {_schema}.widgets SET status = 'active'
             $$;
             """, TestContext.Current.CancellationToken);
 
-        var builder = NSchemaApplication.CreateBuilder();
-        new PostgresPlugin().Configure(builder, new ConfigBlock("provider", "postgres", new Dictionary<string, ConfigValue>
-        {
-            ["connection_string"] = ConfigValue.OfString(_fixture.ConnectionString),
-        })).Succeeded.ShouldBeTrue();
-        builder.AddDdlSchemas(_projectDir);
-        using var app = builder.Build();
+        using var app = BuildApp();
 
-        // Act — plan against live and apply.
-        var planResult = await app.Operations.Plan(new PlanArguments { Schemas = [_schema], Target = PlanTarget.Live }, TestContext.Current.CancellationToken);
-        planResult.IsSuccess.ShouldBeTrue();
-        (await app.Operations.Apply(new ApplyArguments { Sql = planResult.Value!.Sql ?? new SqlPlan([]) }, TestContext.Current.CancellationToken)).IsSuccess.ShouldBeTrue();
+        // Act — refresh the recorded state from live, plan, and apply.
+        var plan = await Plan(app);
+        (await app.Operations.Apply(new ApplyArguments { Plan = plan }, TestContext.Current.CancellationToken)).IsSuccess.ShouldBeTrue();
 
         // Assert — the column ended NOT NULL and every pre-existing row was backfilled.
-        var live = await new PostgresSchemaProvider(_fixture.DataSource).GetSchema([_schema], TestContext.Current.CancellationToken);
+        var live = await Introspect();
         var status = live.Schemas.ShouldHaveSingleItem().Tables.ShouldHaveSingleItem().Columns.Single(column => column.Name == "status");
         status.IsNullable.ShouldBeFalse();
         (await Scalar($"""SELECT string_agg(status, ',' ORDER BY id) FROM "{_schema}".widgets""")).ShouldBe("active,active");
     }
+
+    /// <summary>Builds an app wired only through the plugin manifest, plus the ephemeral state planning requires.</summary>
+    private NSchemaApplication BuildApp()
+    {
+        var builder = NSchemaApplication.CreateBuilder();
+        var configured = new PostgresPlugin().Configure(builder, new PluginConfig("postgres", new Dictionary<AttributeKey, ConfigValue>
+        {
+            [new AttributeKey("connection_string")] = ConfigValue.OfString(_fixture.ConnectionString),
+        }));
+        configured.IsSuccess.ShouldBeTrue();
+
+        builder.AddProjectSource(_projectDir);
+        builder.UseEphemeralState();
+        return builder.Build();
+    }
+
+    /// <summary>Puts the live schema on record, then computes the plan towards the project.</summary>
+    private async Task<NSchema.Plan.Model.MigrationPlan> Plan(NSchemaApplication app)
+    {
+        (await app.Operations.Refresh(new RefreshArguments(), TestContext.Current.CancellationToken)).IsSuccess.ShouldBeTrue();
+        var planResult = await app.Operations.Plan(new PlanArguments(), TestContext.Current.CancellationToken);
+        planResult.IsSuccess.ShouldBeTrue();
+        return planResult.Value!.Plan.ShouldNotBeNull();
+    }
+
+    private async Task<Database> Introspect() =>
+        await new PostgresDatabaseIntrospector(_fixture.DataSource)
+            .GetDatabase(PlanningScope.To([new SqlIdentifier(_schema)]), TestContext.Current.CancellationToken);
 
     private async Task Exec(string sql)
     {

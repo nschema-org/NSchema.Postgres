@@ -1,0 +1,10 @@
+﻿[
+  {
+    Sql: ALTER TABLE "public"."old_users" RENAME TO "users",
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: DROP TABLE "public"."legacy",
+    RunOutsideTransaction: false
+  }
+]

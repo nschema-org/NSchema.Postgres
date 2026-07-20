@@ -1,0 +1,34 @@
+﻿[
+  {
+    Sql: CREATE OR REPLACE PROCEDURE "public"."archive_users"(cutoff date) LANGUAGE sql AS $$ DELETE FROM public.users WHERE created_at < cutoff $$,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER PROCEDURE "public"."purge_users" RENAME TO "archive_users",
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: DROP PROCEDURE "public"."archive_users",
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: CREATE PROCEDURE "public"."archive_users"(cutoff timestamptz) LANGUAGE sql AS $$ DELETE FROM public.users WHERE created_at < cutoff $$,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: COMMENT ON PROCEDURE "public"."archive_users" IS $comment$Archives stale users$comment$,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: COMMENT ON PROCEDURE "public"."archive_users" IS $comment$Archive job$comment$,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: COMMENT ON PROCEDURE "public"."archive_users" IS NULL,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: DROP PROCEDURE "public"."archive_users",
+    RunOutsideTransaction: false
+  }
+]

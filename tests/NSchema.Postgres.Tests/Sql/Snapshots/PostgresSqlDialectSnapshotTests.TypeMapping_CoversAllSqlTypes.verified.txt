@@ -1,0 +1,98 @@
+﻿[
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE boolean,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE smallint,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE smallint,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE integer,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE bigint,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE real,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE double precision,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE numeric(18, 4),
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE character(10),
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE character(10),
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE character varying,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE character varying(100),
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE character varying,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE character varying(100),
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE text,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE date,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE time,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE timestamp,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE timestamptz,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE uuid,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE bytea,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE bytea,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE citext,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE app.order_status,
+    RunOutsideTransaction: false
+  }
+]
