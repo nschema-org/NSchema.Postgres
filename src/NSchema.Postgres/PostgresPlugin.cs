@@ -13,6 +13,15 @@ public sealed class PostgresPlugin : INSchemaDatabasePlugin
     private const string EnvUsername = "NSCHEMA_POSTGRES_USERNAME";
     private const string EnvPassword = "NSCHEMA_POSTGRES_PASSWORD";
 
+    /// <summary>The options a DATABASE statement binds onto.</summary>
+    private sealed class PostgresOptions
+    {
+        public string? ConnectionString { get; set; }
+        public string? Username { get; set; }
+        public string? Password { get; set; }
+        public int? CommandTimeout { get; set; }
+    }
+
     /// <inheritdoc />
     public string GetScaffoldTemplate(ScaffoldContext context) =>
         $"""
@@ -41,61 +50,29 @@ public sealed class PostgresPlugin : INSchemaDatabasePlugin
     /// <inheritdoc />
     public Result Configure(NSchemaApplicationBuilder builder, PluginConfig config)
     {
-        var errors = new List<Diagnostic>();
-        var connectionString = "";
-        string? username = null;
-        string? password = null;
-        int? commandTimeout = null;
-
-        foreach (var (key, value) in config.Attributes)
-        {
-            switch (key.Value.ToLowerInvariant())
-            {
-                case "connection_string":
-                    connectionString = value.AsString();
-                    break;
-                case "username":
-                    username = value.AsString();
-                    break;
-                case "password":
-                    password = value.AsString();
-                    break;
-                case "command_timeout":
-                    if (value.Kind is ConfigValueKind.Integer)
-                    {
-                        commandTimeout = (int)value.AsInteger();
-                    }
-                    else
-                    {
-                        errors.Add(Diagnostic.Error(DiagnosticSource, "DATABASE postgres: command_timeout must be an integer."));
-                    }
-
-                    break;
-                default:
-                    errors.Add(Diagnostic.Error(DiagnosticSource, $"DATABASE postgres: unknown attribute '{key}'."));
-                    break;
-            }
-        }
+        var bound = config.Bind<PostgresOptions>();
+        var diagnostics = new List<Diagnostic>(bound.Diagnostics);
+        var options = bound.Value!;
 
         // Credentials may be supplied out of band (e.g. a secret store); the environment overrides the statement.
-        connectionString = Environment.GetEnvironmentVariable(EnvConnectionString) ?? connectionString;
-        username = Environment.GetEnvironmentVariable(EnvUsername) ?? username;
-        password = Environment.GetEnvironmentVariable(EnvPassword) ?? password;
+        var connectionString = Environment.GetEnvironmentVariable(EnvConnectionString) ?? options.ConnectionString;
+        var username = Environment.GetEnvironmentVariable(EnvUsername) ?? options.Username;
+        var password = Environment.GetEnvironmentVariable(EnvPassword) ?? options.Password;
 
         if (string.IsNullOrEmpty(connectionString))
         {
-            errors.Add(Diagnostic.Error(DiagnosticSource,
+            diagnostics.Add(Diagnostic.Error(DiagnosticSource,
                 $"DATABASE postgres: connection_string is required. Set it via the {EnvConnectionString} environment variable or the statement attribute."));
         }
 
-        if (commandTimeout is < 0)
+        if (options.CommandTimeout is < 0)
         {
-            errors.Add(Diagnostic.Error(DiagnosticSource, "DATABASE postgres: command_timeout must not be negative."));
+            diagnostics.Add(Diagnostic.Error(DiagnosticSource, "DATABASE postgres: command_timeout must not be negative."));
         }
 
-        if (errors.Count > 0)
+        if (diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error))
         {
-            return Result.From(errors);
+            return Result.From(diagnostics);
         }
 
         builder.UsePostgres(dataSource =>
@@ -112,12 +89,12 @@ public sealed class PostgresPlugin : INSchemaDatabasePlugin
                 dataSource.ConnectionStringBuilder.Password = password;
             }
 
-            if (commandTimeout is { } timeout)
+            if (options.CommandTimeout is { } timeout)
             {
                 dataSource.ConnectionStringBuilder.CommandTimeout = timeout;
             }
         });
 
-        return Result.Success();
+        return Result.From(diagnostics);
     }
 }

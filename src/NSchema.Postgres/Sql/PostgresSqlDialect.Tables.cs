@@ -9,14 +9,12 @@ internal sealed partial class PostgresSqlDialect
 
     protected override Result<IReadOnlyList<SqlStatement>> CreateTable(CreateTable action)
     {
-        var parts = action.Table.Columns.Select(BuildColumnDef).ToList();
-
-        // Only the primary key is created inline; unique/check constraints, foreign keys and indexes arrive as
-        // separate ALTER TABLE actions from the linearizer.
-        if (action.Table.PrimaryKey is { } pk)
-        {
-            parts.Add($"CONSTRAINT {Quote(pk.Name)} PRIMARY KEY ({ColumnList(pk.ColumnNames)})");
-        }
+        // Every constraint is created inline: the shared clauses (primary key, unique, check, foreign keys) plus
+        // Postgres's own exclusion constraints. Only indexes arrive as separate actions.
+        var parts = action.Table.Columns.Select(BuildColumnDef)
+            .Concat(InlineConstraintClauses(action.Table))
+            .Concat(action.Table.ExclusionConstraints.Select(ExclusionConstraintClause))
+            .ToList();
 
         return Statement($"""
                           CREATE TABLE {Qualify(action.SchemaName, action.Table.Name)} (

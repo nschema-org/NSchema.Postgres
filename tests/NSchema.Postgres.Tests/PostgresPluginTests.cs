@@ -97,7 +97,7 @@ public sealed class PostgresPluginTests : IDisposable
 
         // Assert
         result.IsFailure.ShouldBeTrue();
-        result.Errors.ShouldContain(e => e.Message.Contains("unknown attribute 'nonsense'"));
+        result.Errors.ShouldContain(e => e.Message.Contains("nonsense"));
     }
 
     [Fact]
@@ -114,7 +114,7 @@ public sealed class PostgresPluginTests : IDisposable
 
         // Assert
         result.IsFailure.ShouldBeTrue();
-        result.Errors.ShouldContain(e => e.Message.Contains("command_timeout must be an integer"));
+        result.Errors.ShouldContain(e => e.Message.Contains("command_timeout"));
     }
 
     [Fact]
