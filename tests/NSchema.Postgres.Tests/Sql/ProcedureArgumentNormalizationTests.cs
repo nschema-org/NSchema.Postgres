@@ -1,5 +1,3 @@
-using NSchema.Postgres.Sql;
-
 namespace NSchema.Postgres.Tests.Sql;
 
 /// <summary>

@@ -9,26 +9,10 @@ using NSchema.Plan.Model.Extensions;
 using NSchema.Plan.Model.Indexes;
 using NSchema.Plan.Model.Routines;
 using NSchema.Plan.Model.Schemas;
-using NSchema.Plan.Model.Sequence;
 using NSchema.Plan.Model.Tables;
 using NSchema.Plan.Model.Triggers;
 using NSchema.Plan.Model.Views;
-using NSchema.Postgres.Sql;
 using NSchema.Postgres.Tests.Fixtures;
-using NSchema.Schema.Model.Columns;
-using NSchema.Schema.Model.CompositeTypes;
-using NSchema.Schema.Model.Constraints;
-using NSchema.Schema.Model.Domains;
-using NSchema.Schema.Model.Enums;
-using NSchema.Schema.Model.Extensions;
-using NSchema.Schema.Model.Indexes;
-using NSchema.Schema.Model.Routines;
-using NSchema.Schema.Model.Scripts;
-using NSchema.Schema.Model.Sequences;
-using NSchema.Schema.Model.Tables;
-using NSchema.Schema.Model.Triggers;
-using NSchema.Schema.Model.Views;
-using NSchema.Sql.Model;
 
 namespace NSchema.Postgres.Tests.Sql;
 

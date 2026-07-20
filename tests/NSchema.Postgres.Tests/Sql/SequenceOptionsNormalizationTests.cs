@@ -1,7 +1,4 @@
 using NSchema.Postgres.Models;
-using NSchema.Postgres.Sql;
-using NSchema.Schema.Model.Columns;
-using NSchema.Schema.Model.Sequences;
 
 namespace NSchema.Postgres.Tests.Sql;
 
