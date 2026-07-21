@@ -46,7 +46,7 @@ public sealed class PostgresPluginEndToEndTests(PostgresContainerFixture fixture
               id   bigint NOT NULL,
               name text,
               CONSTRAINT widgets_pkey PRIMARY KEY (id)
-            )
+            );
             """, TestContext.Current.CancellationToken);
 
         using var app = BuildApp();
