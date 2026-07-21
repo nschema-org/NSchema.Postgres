@@ -56,7 +56,7 @@ internal sealed partial class PostgresSqlDialect : SqlDialect
 
     // ── Type mapping ──────────────────────────────────────────────────────────
 
-    private static string ToPostgresType(SqlType type) => type.Name.Value switch
+    private string ToPostgresType(SqlType type) => type.Name.Value switch
     {
         "boolean" => "boolean",
         "tinyint" => "smallint",
@@ -75,8 +75,8 @@ internal sealed partial class PostgresSqlDialect : SqlDialect
         "datetimeoffset" => "timestamptz",
         "guid" => "uuid",
         "binary" or "varbinary" => "bytea",
-        // Any other name is a database-specific or user-defined type (e.g. citext, jsonb, a domain);
-        // emit it verbatim, qualified when the model carries a schema.
-        _ => type.Schema is { } schema ? $"{schema.Value}.{type.Name.Value}" : type.Name.Value,
+        // Any other name is a database-specific or user-defined type (e.g. citext, jsonb, a domain); a
+        // schema-qualified type is quoted (a user-defined type in another schema), an unqualified one emitted bare.
+        _ => type.Schema is { } schema ? $"{Quote(schema)}.{Quote(type.Name)}" : type.Name.Value,
     };
 }

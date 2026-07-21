@@ -803,9 +803,10 @@ public sealed class PostgresDatabaseIntrospectorTests(PostgresContainerFixture f
     }
 
     [Fact]
-    public async Task GetDatabase_EnumColumn_MappedAsCustomType()
+    public async Task GetDatabase_EnumColumn_MappedAsCustomType_PreservingSchema()
     {
-        // Arrange — a column typed as a user-defined enum comes back through MapSqlType's fall-through.
+        // Arrange — a column typed as a user-defined enum comes back through MapSqlType's fall-through; its
+        // udt_schema is preserved so a type in another schema round-trips.
         await Exec($"""
             CREATE TYPE "{_schema}".order_status AS ENUM ('draft', 'active');
             CREATE TABLE "{_schema}".orders (status "{_schema}".order_status NOT NULL);
@@ -816,7 +817,7 @@ public sealed class PostgresDatabaseIntrospectorTests(PostgresContainerFixture f
             .Schemas[0].Tables.ShouldHaveSingleItem().Columns.ShouldHaveSingleItem();
 
         // Assert
-        column.Type.ShouldBe(SqlType.Custom("order_status"));
+        column.Type.ShouldBe(SqlType.Custom(_schema, "order_status"));
     }
 
     // ── Sequences ─────────────────────────────────────────────────────────────
