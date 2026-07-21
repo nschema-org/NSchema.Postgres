@@ -92,7 +92,7 @@
     RunOutsideTransaction: false
   },
   {
-    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE app.order_status,
+    Sql: ALTER TABLE "public"."t" ALTER COLUMN "c" TYPE "app"."order_status",
     RunOutsideTransaction: false
   }
 ]

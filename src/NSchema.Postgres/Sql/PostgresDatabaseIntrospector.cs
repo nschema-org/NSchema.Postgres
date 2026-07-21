@@ -127,7 +127,8 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
                 seq.seqstart   AS identity_start,
                 seq.seqmin     AS identity_min_value,
                 seq.seqincrement AS identity_increment,
-                CASE WHEN c.is_generated = 'ALWAYS' THEN c.generation_expression END AS generation_expression
+                CASE WHEN c.is_generated = 'ALWAYS' THEN c.generation_expression END AS generation_expression,
+                c.udt_schema
             FROM information_schema.columns c
             LEFT JOIN pg_namespace    n  ON n.nspname   = c.table_schema
             LEFT JOIN pg_class        t  ON t.relname   = c.table_name
@@ -158,6 +159,7 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
                 ColumnName: reader.GetString(2),
                 DataType: reader.GetString(3),
                 UdtName: reader.GetString(4),
+                UdtSchema: reader.IsDBNull(17) ? null : reader.GetString(17),
                 DomainSchema: reader.IsDBNull(5) ? null : reader.GetString(5),
                 DomainName: reader.IsDBNull(6) ? null : reader.GetString(6),
                 MaxLength: reader.IsDBNull(7) ? null : reader.GetInt32(7),
@@ -1691,7 +1693,7 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         var fields = allFields
             .Where(f => f.Schema == row.Schema && f.TypeName == row.Name)
             .OrderBy(f => f.OrdinalPosition)
-            .Select(f => new CompositeField(f.FieldName, MapSqlType(f.DataType, f.UdtName, domainSchema: null, domainName: null, f.MaxLength, f.Precision, f.Scale)))
+            .Select(f => new CompositeField(f.FieldName, MapSqlType(f.DataType, f.UdtName, udtSchema: null, domainSchema: null, domainName: null, f.MaxLength, f.Precision, f.Scale)))
             .ToList();
         return new CompositeType { Name = row.Name, Fields = fields, Comment = row.Comment };
     }
@@ -1704,7 +1706,7 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         return new DomainType
         {
             Name = row.Name,
-            DataType = MapSqlType(row.DataType, row.UdtName, domainSchema: null, domainName: null, row.MaxLength, row.Precision, row.Scale),
+            DataType = MapSqlType(row.DataType, row.UdtName, udtSchema: null, domainSchema: null, domainName: null, row.MaxLength, row.Precision, row.Scale),
             Default = row.Default,
             NotNull = row.NotNull,
             Checks = [.. checks],
@@ -1784,7 +1786,7 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
     private static Column MapColumn(ColumnRow row, Dictionary<(string, string, string), string?> columnComments) => new()
     {
         Name = row.ColumnName,
-        Type = MapSqlType(row.DataType, row.UdtName, row.DomainSchema, row.DomainName, row.MaxLength, row.NumericPrecision, row.NumericScale),
+        Type = MapSqlType(row.DataType, row.UdtName, row.UdtSchema, row.DomainSchema, row.DomainName, row.MaxLength, row.NumericPrecision, row.NumericScale),
         IsNullable = row.IsNullable,
         IsIdentity = row.IsIdentity,
         DefaultExpression = row.DefaultExpression,
@@ -1795,7 +1797,7 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         Comment = columnComments.GetValueOrDefault((row.TableSchema, row.TableName, row.ColumnName)),
     };
 
-    private static SqlType MapSqlType(string dataType, string udtName, string? domainSchema, string? domainName, int? maxLength, int? precision, int? scale)
+    private static SqlType MapSqlType(string dataType, string udtName, string? udtSchema, string? domainSchema, string? domainName, int? maxLength, int? precision, int? scale)
     {
         // For a column declared against a domain, information_schema returns the domain's
         // base type in data_type (e.g. "text"). Preserve the domain name so the schema
@@ -1825,7 +1827,9 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
             "timestamp with time zone" => SqlType.DateTimeOffset,
             "uuid" => SqlType.Guid,
             "bytea" => SqlType.VarBinary(),
-            _ => SqlType.Custom(udtName),
+            // A user-defined type (enum, composite, …): preserve its schema so the type round-trips, collapsing
+            // the default schema the same way a domain does.
+            _ => udtSchema is null or "public" ? SqlType.Custom(udtName) : SqlType.Custom(udtSchema, udtName),
         };
     }
 
