@@ -1,7 +1,7 @@
 using NSchema.Model;
 using NSchema.Operations;
 using NSchema.Plugins;
-using NSchema.Plugins.Model.Config;
+using NSchema.Configuration.Plugins;
 using NSchema.Postgres.Sql;
 using NSchema.Postgres.Tests.Fixtures;
 
@@ -46,7 +46,7 @@ public sealed class PostgresPluginEndToEndTests(PostgresContainerFixture fixture
               id   bigint NOT NULL,
               name text,
               CONSTRAINT widgets_pkey PRIMARY KEY (id)
-            );
+            )
             """, TestContext.Current.CancellationToken);
 
         using var app = BuildApp();
@@ -146,9 +146,9 @@ public sealed class PostgresPluginEndToEndTests(PostgresContainerFixture fixture
     private NSchemaApplication BuildApp()
     {
         var builder = NSchemaApplication.CreateBuilder();
-        var configured = new PostgresPlugin().Configure(builder, new PluginConfig("postgres", new Dictionary<AttributeKey, ConfigValue>
+        var configured = new PostgresPlugin().Configure(builder, new PluginSettings("postgres", new Dictionary<string, string?>
         {
-            [new AttributeKey("connection_string")] = ConfigValue.OfString(_fixture.ConnectionString),
+            ["connection_string"] = _fixture.ConnectionString,
         }));
         configured.IsSuccess.ShouldBeTrue();
 

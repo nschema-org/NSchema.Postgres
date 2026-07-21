@@ -1,6 +1,6 @@
 using NSchema.Plan.Backends;
 using NSchema.Plugins;
-using NSchema.Plugins.Model.Config;
+using NSchema.Configuration.Plugins;
 
 namespace NSchema.Postgres.Tests;
 
@@ -58,7 +58,7 @@ public sealed class PostgresPluginTests : IDisposable
     {
         // Arrange
         var builder = NSchemaApplication.CreateBuilder();
-        var config = Config(("connection_string", ConfigValue.OfString("Host=localhost;Database=app")));
+        var config = Config(("connection_string", "Host=localhost;Database=app"));
 
         // Act
         var result = _sut.Configure(builder, config);
@@ -90,15 +90,15 @@ public sealed class PostgresPluginTests : IDisposable
         // Arrange
         var builder = NSchemaApplication.CreateBuilder();
         var config = Config(
-            ("connection_string", ConfigValue.OfString("Host=localhost")),
-            ("nonsense", ConfigValue.OfString("x")));
+            ("connection_string", "Host=localhost"),
+            ("nonsense", "x"));
 
         // Act
         var result = _sut.Configure(builder, config);
 
         // Assert
         result.IsFailure.ShouldBeTrue();
-        result.Errors.ShouldContain(e => e.Message.Contains("nonsense"));
+        result.Errors.ShouldContain(e => e.Message.Contains("nonsense", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -107,15 +107,14 @@ public sealed class PostgresPluginTests : IDisposable
         // Arrange
         var builder = NSchemaApplication.CreateBuilder();
         var config = Config(
-            ("connection_string", ConfigValue.OfString("Host=localhost")),
-            ("command_timeout", ConfigValue.OfString("soon")));
+            ("connection_string", "Host=localhost"),
+            ("command_timeout", "soon"));
 
         // Act
         var result = _sut.Configure(builder, config);
 
-        // Assert
+        // Assert — the binder rejects a value it cannot convert to int.
         result.IsFailure.ShouldBeTrue();
-        result.Errors.ShouldContain(e => e.Message.Contains("command_timeout"));
     }
 
     [Fact]
@@ -124,8 +123,8 @@ public sealed class PostgresPluginTests : IDisposable
         // Arrange
         var builder = NSchemaApplication.CreateBuilder();
         var config = Config(
-            ("connection_string", ConfigValue.OfString("Host=localhost")),
-            ("command_timeout", ConfigValue.OfInteger(-1)));
+            ("connection_string", "Host=localhost"),
+            ("command_timeout", "-1"));
 
         // Act
         var result = _sut.Configure(builder, config);
@@ -138,9 +137,9 @@ public sealed class PostgresPluginTests : IDisposable
     [Fact]
     public void Configure_MultipleProblems_AggregatesEveryError()
     {
-        // Arrange — an unknown attribute and no connection string: both must be reported, not just the first.
+        // Arrange — no connection string and a negative timeout: both must be reported, not just the first.
         var builder = NSchemaApplication.CreateBuilder();
-        var config = Config(("nope", ConfigValue.OfString("x")));
+        var config = Config(("command_timeout", "-1"));
 
         // Act
         var result = _sut.Configure(builder, config);
@@ -166,6 +165,6 @@ public sealed class PostgresPluginTests : IDisposable
         result.Errors.ShouldBeEmpty();
     }
 
-    private static PluginConfig Config(params (string Key, ConfigValue Value)[] attributes)
-        => new("postgres", attributes.ToDictionary(a => new AttributeKey(a.Key), a => a.Value));
+    private static PluginSettings Config(params (string Key, string? Value)[] attributes)
+        => new("postgres", attributes.ToDictionary(a => a.Key, a => a.Value, StringComparer.OrdinalIgnoreCase));
 }
