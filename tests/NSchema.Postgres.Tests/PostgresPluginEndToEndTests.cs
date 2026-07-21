@@ -1,6 +1,7 @@
 using NSchema.Model;
 using NSchema.Operations;
 using NSchema.Plugins;
+using NSchema.Plugins.Model.Config;
 using NSchema.Postgres.Sql;
 using NSchema.Postgres.Tests.Fixtures;
 

@@ -1,5 +1,6 @@
 using NSchema.Plan.Backends;
 using NSchema.Plugins;
+using NSchema.Plugins.Model.Config;
 
 namespace NSchema.Postgres.Tests;
 
