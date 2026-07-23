@@ -26,7 +26,10 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
 
         // The scope is a hint; null means "all visible schemas" and the engine re-applies the scope after the read.
-        var schemas = scope.IsUnscoped ? null : scope.SchemaNames.Select(s => s.Value).ToArray();
+        // Every address belongs to a schema (a schema address is its own), so the read narrows to those.
+        var schemas = scope.IsUnscoped
+            ? null
+            : scope.Addresses.Select(a => a.SchemaName).OfType<SqlIdentifier>().Distinct().Select(s => s.Value).ToArray();
 
         var tables = await QueryTables(conn, schemas, cancellationToken);
         var columns = await QueryColumns(conn, schemas, cancellationToken);

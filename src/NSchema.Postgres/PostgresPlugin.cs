@@ -1,5 +1,9 @@
 using NSchema.Configuration.Plugins;
 using NSchema.Plugins;
+using NSchema.Project.Nsql;
+using NSchema.Project.Nsql.Syntax;
+using NSchema.Project.Nsql.Syntax.Blocks;
+using NSchema.Project.Nsql.Tokens;
 
 namespace NSchema.Postgres;
 
@@ -24,17 +28,20 @@ public sealed class PostgresPlugin : INSchemaDatabasePlugin
     }
 
     /// <inheritdoc />
-    public string GetScaffoldTemplate(ScaffoldContext context) =>
-        $"""
-        DATABASE postgres (
-          -- Prefer the {EnvConnectionString} environment variable, which
-          -- overrides the value below.
-          connection_string = ''
-          -- Credentials may be supplied separately from the connection string (e.g. from
-          -- a secret store) via {EnvUsername} / {EnvPassword}.
-          -- They override any user/password embedded in connection_string.
-        );
-        """;
+    public BlockStatement GetScaffoldTemplate(ScaffoldContext context) =>
+        new(BlockKeyword.Database, Identifier.Synthetic("postgres"), new SeparatedSyntaxList<BlockAttribute>(
+        [
+            new BlockAttribute("connection_string", string.Empty),
+        ]))
+        {
+            DocComment = new Token(
+                TokenKind.DocComment,
+                $"Prefer the {EnvConnectionString} environment variable, which overrides the value below.\n" +
+                $"Credentials may be supplied separately from the connection string (e.g. from a secret\n" +
+                $"store) via {EnvUsername} / {EnvPassword}. They override any user/password embedded in\n" +
+                "connection_string.",
+                SourcePosition.None),
+        };
 
     /// <inheritdoc />
     public string GetSampleSchema() =>

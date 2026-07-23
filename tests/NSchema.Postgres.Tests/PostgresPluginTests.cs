@@ -1,6 +1,7 @@
 using NSchema.Configuration.Plugins;
 using NSchema.Plan.Backends;
 using NSchema.Plugins;
+using NSchema.Project.Nsql.Syntax.Blocks;
 
 namespace NSchema.Postgres.Tests;
 
@@ -41,7 +42,13 @@ public sealed class PostgresPluginTests : IDisposable
 
     [Fact]
     public void GetScaffoldTemplate_ReturnsDatabaseStatement()
-        => _sut.GetScaffoldTemplate(new ScaffoldContext()).ShouldContain("DATABASE postgres");
+    {
+        var block = _sut.GetScaffoldTemplate(new ScaffoldContext());
+
+        block.Keyword.ShouldBe(BlockKeyword.Database);
+        block.Label!.Value.ShouldBe("postgres");
+        block.Attributes.ShouldContain(a => a.Key == "connection_string");
+    }
 
     [Fact]
     public void GetSampleSchema_ScaffoldsANamedSchema()

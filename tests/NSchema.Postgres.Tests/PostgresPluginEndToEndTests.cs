@@ -168,7 +168,7 @@ public sealed class PostgresPluginEndToEndTests(PostgresContainerFixture fixture
 
     private async Task<Database> Introspect() =>
         await new PostgresDatabaseIntrospector(_fixture.DataSource)
-            .GetDatabase(PlanningScope.To([new SqlIdentifier(_schema)]), TestContext.Current.CancellationToken);
+            .GetDatabase(PlanningScope.To(new SchemaAddress(_schema)), TestContext.Current.CancellationToken);
 
     private async Task Exec(string sql)
     {
