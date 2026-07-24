@@ -45,17 +45,24 @@ public static class NSchemaApplicationBuilderExtensions
         }
 
         /// <summary>
-        /// Configures NSchema to use PostgreSQL as the database provider by registering the introspector and SQL dialect.
+        /// Configures NSchema to use PostgreSQL as the database provider by registering the introspector, SQL dialect and equivalence rules.
         /// </summary>
         /// <returns>The <see cref="NSchemaApplicationBuilder"/> instance, allowing for method chaining.</returns>
         public NSchemaApplicationBuilder UsePostgres() => builder
             .UseDatabaseIntrospector<PostgresDatabaseIntrospector>()
-            .UsePostgresDialect();
+            .UsePostgresDialect()
+            .UsePostgresEquivalence();
 
         /// <summary>
         /// Configures the NSchema application to render SQL with the PostgreSQL dialect.
         /// </summary>
         /// <returns>The <see cref="NSchemaApplicationBuilder"/> instance, allowing for method chaining.</returns>
         public NSchemaApplicationBuilder UsePostgresDialect() => builder.UseSqlDialect<PostgresSqlDialect>();
+
+        /// <summary>
+        /// Configures the NSchema application to compare schemas with the PostgreSQL equivalence rules.
+        /// </summary>
+        /// <returns>The <see cref="NSchemaApplicationBuilder"/> instance, allowing for method chaining.</returns>
+        public NSchemaApplicationBuilder UsePostgresEquivalence() => builder.UseSqlEquivalence<PostgresSqlEquivalence>();
     }
 }
