@@ -1807,7 +1807,7 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         // round-trips faithfully.
         if (domainName is not null)
         {
-            return domainSchema is null or "public"
+            return domainSchema is null
                 ? SqlType.Custom(domainName)
                 : SqlType.Custom(domainSchema, domainName);
         }
@@ -1830,10 +1830,9 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
             "timestamp with time zone" => SqlType.DateTimeOffset,
             "uuid" => SqlType.Guid,
             "bytea" => SqlType.VarBinary(),
-            // A user-defined type (enum, composite, …): preserve its schema so the type round-trips, collapsing
-            // the default schema the same way a domain does. Built-ins outside the switch (jsonb, inet, …)
-            // also land here with udt_schema = pg_catalog, so collapse that too.
-            _ => udtSchema is null or "public" or "pg_catalog" ? SqlType.Custom(udtName) : SqlType.Custom(udtSchema, udtName),
+            // A user-defined type (enum, composite, …) or a built-in outside the switch (jsonb, inet, …):
+            // captured verbatim, qualifier included — PostgresSqlEquivalence decides what a qualifier means.
+            _ => udtSchema is null ? SqlType.Custom(udtName) : SqlType.Custom(udtSchema, udtName),
         };
     }
 

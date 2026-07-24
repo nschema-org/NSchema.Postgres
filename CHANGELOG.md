@@ -24,7 +24,8 @@ v5.0 tracks the NSchema.Core 5.0 rearchitecture. The provider's behaviour is unc
 - Revoking table privileges now revokes the specific privileges the plan names rather than `ALL PRIVILEGES`.
 - `ON DELETE NO ACTION` / `ON UPDATE NO ACTION` are no longer spelled out on added foreign keys (they are the engine default).
 - Schema-qualified user-defined type names are now quoted in generated SQL: a column typed as, say, `app.order_status` renders as `"app"."order_status"` rather than bare (an unqualified type name is still emitted as-is).
-- A user-defined type (enum, composite, …) in a non-default schema is now read back schema-qualified during introspection instead of losing its schema, so it no longer produces a spurious diff against a schema-qualified declaration. A type in `public` still reads back unqualified.
+- A user-defined type (enum, composite, …) is now read back schema-qualified during introspection instead of losing its schema, so it no longer produces a spurious diff against a schema-qualified declaration.
+- **Postgres equivalence rules.** `UsePostgres` now also registers `PostgresSqlEquivalence` (standalone: `UsePostgresEquivalence`) into the core's comparison seam, so spellings the catalog and a project may legitimately disagree on compare equal in either direction. Introspection still captures exactly what the catalog reports.
 
 ## [4.3.0] - 2026-07-09
 

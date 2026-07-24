@@ -164,8 +164,9 @@ public sealed class PostgresDatabaseIntrospectorTests(PostgresContainerFixture f
         var emailCol = (await Introspect(_schema))
             .Schemas[0].Tables[0].Columns.Single(c => c.Name == "email");
 
-        // Assert
-        emailCol.Type.ShouldBe(SqlType.Custom("citext"));
+        // Assert — captured with the extension's public qualifier, equivalent to the declared bare name.
+        emailCol.Type.ShouldBe(SqlType.Custom("public", "citext"));
+        new PostgresSqlEquivalence().Types.Equals(emailCol.Type, SqlType.Custom("citext")).ShouldBeTrue();
     }
 
     // ── Identity & defaults ───────────────────────────────────────────────────
@@ -821,10 +822,10 @@ public sealed class PostgresDatabaseIntrospectorTests(PostgresContainerFixture f
     }
 
     [Fact]
-    public async Task GetDatabase_BuiltInFallthroughColumn_MappedUnqualified()
+    public async Task GetDatabase_BuiltInFallthroughColumn_CapturedQualified_AndEquivalentToBareName()
     {
-        // Arrange — jsonb also hits MapSqlType's fall-through, but its pg_catalog udt_schema
-        // must collapse so the type reads as declared.
+        // Arrange — jsonb hits MapSqlType's fall-through: captured verbatim with its pg_catalog qualifier,
+        // which the equivalence rules fold when comparing against the declared bare name.
         await Exec($"""CREATE TABLE "{_schema}".events (payload jsonb NOT NULL);""");
 
         // Act
@@ -832,7 +833,40 @@ public sealed class PostgresDatabaseIntrospectorTests(PostgresContainerFixture f
             .Schemas[0].Tables.ShouldHaveSingleItem().Columns.ShouldHaveSingleItem();
 
         // Assert
-        column.Type.ShouldBe(SqlType.Custom("jsonb"));
+        column.Type.ShouldBe(SqlType.Custom("pg_catalog", "jsonb"));
+        new PostgresSqlEquivalence().Types.Equals(column.Type, SqlType.Custom("jsonb")).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task GetDatabase_LiteralDefaults_CapturedVerbatim_AndEquivalentToDeclared()
+    {
+        // Arrange — Postgres stores literal defaults with explicit casts; the capture keeps the catalog's
+        // form and the equivalence rules make it compare equal to the declared form, so a plan after
+        // apply converges.
+        await Exec($$"""
+            CREATE TABLE "{{_schema}}".profiles (
+                scope_type text NOT NULL DEFAULT 'internal',
+                priority   integer NOT NULL DEFAULT -1,
+                payload    jsonb NOT NULL DEFAULT '{}',
+                created_at timestamptz NOT NULL DEFAULT now()
+            );
+            """);
+
+        // Act
+        var columns = (await Introspect(_schema))
+            .Schemas[0].Tables.ShouldHaveSingleItem().Columns;
+
+        // Assert — captured exactly as the catalog reports…
+        columns.Single(c => c.Name == "scope_type").DefaultExpression!.Value.ShouldBe("'internal'::text");
+        columns.Single(c => c.Name == "priority").DefaultExpression!.Value.ShouldBe("'-1'::integer");
+        columns.Single(c => c.Name == "payload").DefaultExpression!.Value.ShouldBe("'{}'::jsonb");
+        columns.Single(c => c.Name == "created_at").DefaultExpression!.Value.ShouldBe("now()");
+
+        // …and equivalent to what the project declares.
+        var defaults = new PostgresSqlEquivalence().Defaults;
+        defaults.Equals(columns.Single(c => c.Name == "scope_type").DefaultExpression, new SqlDefaultExpression("'internal'")).ShouldBeTrue();
+        defaults.Equals(columns.Single(c => c.Name == "priority").DefaultExpression, new SqlDefaultExpression("-1")).ShouldBeTrue();
+        defaults.Equals(columns.Single(c => c.Name == "payload").DefaultExpression, new SqlDefaultExpression("'{}'")).ShouldBeTrue();
     }
 
     // ── Sequences ─────────────────────────────────────────────────────────────
