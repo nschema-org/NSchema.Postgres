@@ -820,6 +820,21 @@ public sealed class PostgresDatabaseIntrospectorTests(PostgresContainerFixture f
         column.Type.ShouldBe(SqlType.Custom(_schema, "order_status"));
     }
 
+    [Fact]
+    public async Task GetDatabase_BuiltInFallthroughColumn_MappedUnqualified()
+    {
+        // Arrange — jsonb also hits MapSqlType's fall-through, but its pg_catalog udt_schema
+        // must collapse so the type reads as declared.
+        await Exec($"""CREATE TABLE "{_schema}".events (payload jsonb NOT NULL);""");
+
+        // Act
+        var column = (await Introspect(_schema))
+            .Schemas[0].Tables.ShouldHaveSingleItem().Columns.ShouldHaveSingleItem();
+
+        // Assert
+        column.Type.ShouldBe(SqlType.Custom("jsonb"));
+    }
+
     // ── Sequences ─────────────────────────────────────────────────────────────
 
     [Fact]

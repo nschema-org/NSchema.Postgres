@@ -1831,8 +1831,9 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
             "uuid" => SqlType.Guid,
             "bytea" => SqlType.VarBinary(),
             // A user-defined type (enum, composite, …): preserve its schema so the type round-trips, collapsing
-            // the default schema the same way a domain does.
-            _ => udtSchema is null or "public" ? SqlType.Custom(udtName) : SqlType.Custom(udtSchema, udtName),
+            // the default schema the same way a domain does. Built-ins outside the switch (jsonb, inet, …)
+            // also land here with udt_schema = pg_catalog, so collapse that too.
+            _ => udtSchema is null or "public" or "pg_catalog" ? SqlType.Custom(udtName) : SqlType.Custom(udtSchema, udtName),
         };
     }
 
