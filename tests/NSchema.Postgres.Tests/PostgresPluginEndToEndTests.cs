@@ -1,7 +1,6 @@
 using NSchema.Configuration.Plugins;
 using NSchema.Model;
 using NSchema.Operations;
-using NSchema.Plugins;
 using NSchema.Postgres.Sql;
 using NSchema.Postgres.Tests.Fixtures;
 
@@ -158,7 +157,7 @@ public sealed class PostgresPluginEndToEndTests(PostgresContainerFixture fixture
     }
 
     /// <summary>Puts the live schema on record, then computes the plan towards the project.</summary>
-    private async Task<NSchema.Plan.Model.MigrationPlan> Plan(NSchemaApplication app)
+    private async Task<NSchema.Plan.Domain.MigrationPlan> Plan(NSchemaApplication app)
     {
         (await app.Operations.Refresh(new RefreshArguments(), TestContext.Current.CancellationToken)).IsSuccess.ShouldBeTrue();
         var planResult = await app.Operations.Plan(new PlanArguments(), TestContext.Current.CancellationToken);

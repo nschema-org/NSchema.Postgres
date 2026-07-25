@@ -1,7 +1,7 @@
 using NSchema.Configuration.Plugins;
 using NSchema.Plan.Backends;
 using NSchema.Plugins;
-using NSchema.Project.Nsql.Syntax.Blocks;
+using NSchema.Project.Nsql.Syntax.Settings;
 
 namespace NSchema.Postgres.Tests;
 
@@ -45,9 +45,9 @@ public sealed class PostgresPluginTests : IDisposable
     {
         var block = _sut.GetScaffoldTemplate(new ScaffoldContext());
 
-        block.Keyword.ShouldBe(BlockKeyword.Database);
+        block.Keyword.ShouldBe(SettingsKeyword.Database);
         block.Label!.Value.ShouldBe("postgres");
-        block.Attributes.ShouldContain(a => a.Key == "connection_string");
+        block.Settings.ShouldContain(a => a.Key == "connection_string");
     }
 
     [Fact]
@@ -157,12 +157,12 @@ public sealed class PostgresPluginTests : IDisposable
     }
 
     [Fact]
-    public void Configure_EnvironmentConnectionString_SatisfiesOmittedAttribute()
+    public void Configure_SuppliedConnectionString_Succeeds()
     {
-        // Arrange
-        Environment.SetEnvironmentVariable("NSCHEMA_POSTGRES_CONNECTION_STRING", "Host=env-host;Database=app");
+        // Arrange — the engine applies any NSCHEMA_DATABASE_* override before binding, so by here the
+        // setting is simply present; where it came from is not the plugin's concern.
         var builder = NSchemaApplication.CreateBuilder();
-        var config = Config();
+        var config = Config(("connection_string", "Host=env-host;Database=app"));
 
         // Act
         var result = _sut.Configure(builder, config);

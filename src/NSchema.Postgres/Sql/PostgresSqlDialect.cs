@@ -1,6 +1,6 @@
 using NSchema.Model.Columns;
 using NSchema.Plan.Backends;
-using NSchema.Plan.Model;
+using NSchema.Plan.Domain;
 
 namespace NSchema.Postgres.Sql;
 

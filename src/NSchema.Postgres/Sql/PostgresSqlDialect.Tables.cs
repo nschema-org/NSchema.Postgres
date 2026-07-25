@@ -1,5 +1,5 @@
-using NSchema.Plan.Model;
-using NSchema.Plan.Model.Tables;
+using NSchema.Plan.Domain;
+using NSchema.Plan.Domain.Tables;
 
 namespace NSchema.Postgres.Sql;
 
