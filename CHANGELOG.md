@@ -18,7 +18,7 @@ v5.0 tracks the NSchema.Core 5.0 rearchitecture. The provider's behaviour is unc
 
 - **Updated to NSchema.Core 5.0.** The provider now plugs in the core's `SqlDialect` (SQL rendering) and `IDatabaseIntrospector` (live-schema reading) seams.
 - **`UsePostgres` replaces `UseCurrentSchemaPostgres`.** The old name referenced a core concept that no longer exists; `UsePostgresDialect` replaces `UsePostgresGenerator` the same way.
-- **The plugin is configured by a `DATABASE` statement.** `Configure` takes the core's typed `PluginConfig` and returns a `Result`; configuration problems are diagnostics.
+- **The plugin is configured by a `DATABASE` statement.** `Configure` takes the core's typed `PluginSettings` and returns a `Result`; configuration problems are diagnostics.
 - An action this dialect cannot execute (e.g. making an existing plain column generated in place) now reports an error diagnostic on the plan instead of throwing.
 - Identifiers everywhere in generated SQL are quoted per the core's case-sensitive identifier model; this now includes role names and trigger function references.
 - Revoking table privileges now revokes the specific privileges the plan names rather than `ALL PRIVILEGES`.

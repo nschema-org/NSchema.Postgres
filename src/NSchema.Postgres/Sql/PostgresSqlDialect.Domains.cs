@@ -1,8 +1,8 @@
 using System.Text;
 using NSchema.Model;
 using NSchema.Model.Domains;
-using NSchema.Plan.Model;
-using NSchema.Plan.Model.Domains;
+using NSchema.Plan.Domain;
+using NSchema.Plan.Domain.Domains;
 
 namespace NSchema.Postgres.Sql;
 
