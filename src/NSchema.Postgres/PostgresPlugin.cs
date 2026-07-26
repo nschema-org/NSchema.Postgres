@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Npgsql;
 using NSchema.Configuration.Plugins;
 using NSchema.Plugins;
 using NSchema.Project.Nsql;
@@ -28,10 +29,23 @@ public sealed class PostgresPlugin : INSchemaDatabasePlugin
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// The parts of a connection string, rather than the string itself: they are what an operator knows offhand. The
+    /// password is deliberately absent — it belongs in NSCHEMA_DATABASE_PASSWORD, not in a committed file.
+    /// </remarks>
+    public IReadOnlyList<ScaffoldPrompt> GetScaffoldPrompts(ScaffoldContext context) =>
+    [
+        new() { Key = "host", Label = "Host", Default = "localhost" },
+        new() { Key = "port", Label = "Port", Default = "5432" },
+        new() { Key = "database", Label = "Database", Default = "postgres" },
+        new() { Key = "username", Label = "Username", Default = "postgres" },
+    ];
+
+    /// <inheritdoc />
     public SettingsStatement GetScaffoldTemplate(ScaffoldContext context) =>
         new(SettingsKeyword.Database, Identifier.Synthetic("postgres"), new SeparatedSyntaxList<Setting>(
         [
-            new Setting("connection_string", string.Empty),
+            new Setting("connection_string", ConnectionString(context)),
         ]))
         {
             DocComment = new Token(
@@ -42,6 +56,29 @@ public sealed class PostgresPlugin : INSchemaDatabasePlugin
                 "connection_string.",
                 SourcePosition.None),
         };
+
+    // Nothing answered leaves the setting blank, which is the placeholder a user edits by hand.
+    private static string ConnectionString(ScaffoldContext context)
+    {
+        if (context.Answers.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var builder = new NpgsqlConnectionStringBuilder
+        {
+            Host = context.Answer("host", "localhost"),
+            Database = context.Answer("database", "postgres"),
+            Username = context.Answer("username", "postgres"),
+        };
+
+        if (int.TryParse(context.Answer("port"), out var port))
+        {
+            builder.Port = port;
+        }
+
+        return builder.ConnectionString;
+    }
 
     /// <inheritdoc />
     public string GetSampleSchema() =>
