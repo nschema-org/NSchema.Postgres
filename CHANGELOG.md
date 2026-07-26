@@ -14,6 +14,10 @@ As a consequence, breaking changes that are specific to this provider (rather th
 
 v5.0 tracks the NSchema.Core 5.0 rearchitecture. The provider's behaviour is unchanged; its seams follow the new core contracts.
 
+### Added
+
+- **`new` asks for the connection details.** The plugin declares host, port, database and username as scaffolding questions and composes the answers into the `connection_string` it writes. The password is deliberately not asked for — it belongs in `NSCHEMA_DATABASE_PASSWORD`.
+
 ### Changed
 
 - **Updated to NSchema.Core 5.0.** The provider now plugs in the core's `SqlDialect` (SQL rendering) and `IDatabaseIntrospector` (live-schema reading) seams.

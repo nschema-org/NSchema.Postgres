@@ -6,56 +6,90 @@ using NSchema.Project.Nsql.Syntax.Settings;
 namespace NSchema.Postgres.Tests;
 
 /// <summary>
-/// Pins <see cref="PostgresPlugin"/>'s attribute parsing, environment-override precedence, and validation. The
-/// result-returning <c>Configure</c> aggregates problems instead of throwing, so a misconfigured provider can
-/// be reported rather than aborting. Pure unit tests — no Docker. The <c>NSCHEMA_POSTGRES_*</c> variables are
-/// snapshotted and cleared so a developer's ambient environment cannot make the outcome non-deterministic.
+/// Pins <see cref="PostgresPlugin"/>'s attribute parsing, scaffolding, and validation. The result-returning
+/// <c>Configure</c> aggregates problems instead of throwing, so a misconfigured provider can be reported rather than
+/// aborting. Pure unit tests — no Docker.
 /// </summary>
-public sealed class PostgresPluginTests : IDisposable
+public sealed class PostgresPluginTests
 {
-    private static readonly string[] EnvVars =
-    [
-        "NSCHEMA_POSTGRES_CONNECTION_STRING",
-        "NSCHEMA_POSTGRES_USERNAME",
-        "NSCHEMA_POSTGRES_PASSWORD",
-    ];
-
-    private readonly Dictionary<string, string?> _savedEnv = new();
     private readonly PostgresPlugin _sut = new();
 
-    public PostgresPluginTests()
-    {
-        foreach (var name in EnvVars)
+    private static ScaffoldContext Answered(params (string Key, string Value)[] answers) =>
+        new()
         {
-            _savedEnv[name] = Environment.GetEnvironmentVariable(name);
-            Environment.SetEnvironmentVariable(name, null);
-        }
-    }
+            Answers = answers.ToDictionary(a => a.Key, a => (string?)a.Value, StringComparer.OrdinalIgnoreCase),
+        };
 
-    public void Dispose()
-    {
-        foreach (var (name, value) in _savedEnv)
-        {
-            Environment.SetEnvironmentVariable(name, value);
-        }
-    }
+    private static string ConnectionString(SettingsStatement statement) =>
+        statement.Settings.Single(setting => setting.Key == "connection_string").Value;
 
     [Fact]
     public void GetScaffoldTemplate_ReturnsDatabaseStatement()
     {
+        // Act
         var block = _sut.GetScaffoldTemplate(new ScaffoldContext());
 
+        // Assert
         block.Keyword.ShouldBe(SettingsKeyword.Database);
         block.Label!.Value.ShouldBe("postgres");
         block.Settings.ShouldContain(a => a.Key == "connection_string");
     }
 
     [Fact]
+    public void GetScaffoldPrompts_AsksForThePartsOfAConnectionString()
+    {
+        // Act
+        var prompts = _sut.GetScaffoldPrompts(new ScaffoldContext());
+
+        // Assert — every part has a default, so a non-interactive scaffold is never blocked.
+        prompts.Select(prompt => prompt.Key).ShouldBe(["host", "port", "database", "username"]);
+        prompts.ShouldAllBe(prompt => !prompt.IsRequired);
+    }
+
+    [Fact]
+    public void GetScaffoldPrompts_DoesNotAskForThePassword()
+    {
+        // Act
+        var prompts = _sut.GetScaffoldPrompts(new ScaffoldContext());
+
+        // Assert — a password answered here would be written into a committed file; it belongs in the environment.
+        prompts.ShouldNotContain(prompt => prompt.Key == "password");
+    }
+
+    [Fact]
+    public void GetScaffoldTemplate_ComposesTheAnswersIntoTheConnectionString()
+    {
+        // Arrange
+        var context = Answered(("host", "db.internal"), ("port", "6432"), ("database", "orders"), ("username", "app"));
+
+        // Act
+        var block = _sut.GetScaffoldTemplate(context);
+
+        // Assert
+        var connection = ConnectionString(block);
+        connection.ShouldContain("Host=db.internal");
+        connection.ShouldContain("Port=6432");
+        connection.ShouldContain("Database=orders");
+        connection.ShouldContain("Username=app");
+    }
+
+    [Fact]
+    public void GetScaffoldTemplate_UnansweredLeavesThePlaceholderToEdit()
+    {
+        // Act
+        var block = _sut.GetScaffoldTemplate(new ScaffoldContext());
+
+        // Assert
+        ConnectionString(block).ShouldBeEmpty();
+    }
+
+    [Fact]
     public void GetSampleSchema_ScaffoldsANamedSchema()
     {
-        // Unlike SQLite (main), Postgres scaffolds a dedicated schema.
+        // Act — unlike SQLite (main), Postgres scaffolds a dedicated schema.
         var schema = _sut.GetSampleSchema();
 
+        // Assert
         schema.ShouldContain("CREATE SCHEMA app;");
         schema.ShouldContain("CREATE TABLE app.widgets");
     }
