@@ -1,6 +1,7 @@
 using NSchema.Configuration.Plugins;
 using NSchema.Plan.Backends;
 using NSchema.Plugins;
+using NSchema.Project.Nsql;
 using NSchema.Project.Nsql.Syntax.Settings;
 
 namespace NSchema.Postgres.Tests;
@@ -23,11 +24,14 @@ public sealed class PostgresPluginTests
     private static string ConnectionString(SettingsStatement statement) =>
         statement.Settings.Single(setting => setting.Key == "connection_string").Value;
 
+    private static SettingsStatement Configured(NsqlDocument document) =>
+        document.Statements.OfType<SettingsStatement>().ShouldHaveSingleItem();
+
     [Fact]
     public void GetScaffoldTemplate_ReturnsDatabaseStatement()
     {
         // Act
-        var block = _sut.GetScaffoldTemplate(new ScaffoldContext());
+        var block = Configured(_sut.GetScaffoldTemplate(new ScaffoldContext()));
 
         // Assert
         block.Keyword.ShouldBe(SettingsKeyword.Database);
@@ -63,7 +67,7 @@ public sealed class PostgresPluginTests
         var context = Answered(("host", "db.internal"), ("port", "6432"), ("database", "orders"), ("username", "app"));
 
         // Act
-        var block = _sut.GetScaffoldTemplate(context);
+        var block = Configured(_sut.GetScaffoldTemplate(context));
 
         // Assert
         var connection = ConnectionString(block);
@@ -77,7 +81,7 @@ public sealed class PostgresPluginTests
     public void GetScaffoldTemplate_UnansweredLeavesThePlaceholderToEdit()
     {
         // Act
-        var block = _sut.GetScaffoldTemplate(new ScaffoldContext());
+        var block = Configured(_sut.GetScaffoldTemplate(new ScaffoldContext()));
 
         // Assert
         ConnectionString(block).ShouldBeEmpty();
@@ -87,7 +91,7 @@ public sealed class PostgresPluginTests
     public void GetSampleSchema_ScaffoldsANamedSchema()
     {
         // Act — unlike SQLite (main), Postgres scaffolds a dedicated schema.
-        var schema = _sut.GetSampleSchema();
+        var schema = NsqlWriter.Write(_sut.GetSampleSchema());
 
         // Assert
         schema.ShouldContain("CREATE SCHEMA app;");
@@ -208,4 +212,14 @@ public sealed class PostgresPluginTests
 
     private static PluginSettings Config(params (string Key, string? Value)[] attributes)
         => new("postgres", attributes.ToDictionary(a => a.Key, a => a.Value, StringComparer.OrdinalIgnoreCase));
+
+    [Fact]
+    public void GetSampleSchema_IsAlreadyCanonicallyFormatted()
+    {
+        // Act — the sample is a document, so what `new` writes needs no reformatting.
+        var schema = NsqlWriter.Write(_sut.GetSampleSchema());
+
+        // Assert
+        NsqlWriter.Format(schema).Require().ShouldBe(schema);
+    }
 }
