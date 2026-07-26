@@ -1,7 +1,12 @@
 using System.ComponentModel.DataAnnotations;
 using Npgsql;
 using NSchema.Configuration.Plugins;
+using NSchema.Model;
+using NSchema.Model.Columns;
+using NSchema.Model.Schemas;
+using NSchema.Model.Tables;
 using NSchema.Plugins;
+using NSchema.Project.Nsql;
 using NSchema.Project.Nsql.Syntax.Settings;
 
 namespace NSchema.Postgres;
@@ -39,14 +44,14 @@ public sealed class PostgresPlugin : INSchemaDatabasePlugin
     ];
 
     /// <inheritdoc />
-    public SettingsStatement GetScaffoldTemplate(ScaffoldContext context) =>
-        SettingsStatement.Database("postgres")
+    public NsqlDocument GetScaffoldTemplate(ScaffoldContext context) =>
+        new([SettingsStatement.Database("postgres")
             .WithSetting("connection_string", ConnectionString(context))
             .WithDocComment(
                 "Prefer the NSCHEMA_DATABASE_CONNECTION_STRING environment variable, which overrides the value below.\n"
                 + "Credentials may be supplied separately from the connection string (e.g. from a secret\n"
                 + "store) via NSCHEMA_DATABASE_USERNAME / NSCHEMA_DATABASE_PASSWORD. They override any user/password\n"
-                + "connection_string.");
+                + "connection_string.")]);
 
     // Nothing answered leaves the setting blank, which is the placeholder a user edits by hand.
     private static string ConnectionString(ScaffoldContext context)
@@ -72,16 +77,30 @@ public sealed class PostgresPlugin : INSchemaDatabasePlugin
     }
 
     /// <inheritdoc />
-    public string GetSampleSchema() =>
-        """
-        CREATE SCHEMA app;
-
-        CREATE TABLE app.widgets (
-          id   bigint NOT NULL,
-          name text,
-          CONSTRAINT widgets_pkey PRIMARY KEY (id)
-        );
-        """;
+    public NsqlDocument GetSampleSchema() =>
+        NsqlDocument.From(new Database
+        {
+            Schemas =
+            [
+                new Schema
+                {
+                    Name = "app",
+                    Tables =
+                    {
+                        new Table
+                        {
+                            Name = "widgets",
+                            Columns =
+                            {
+                                new Column { Name = "id", Type = SqlType.BigInt },
+                                new Column { Name = "name", Type = SqlType.Text, IsNullable = true },
+                            },
+                            PrimaryKey = new PrimaryKey { Name = "widgets_pkey", ColumnNames = ["id"] },
+                        },
+                    },
+                },
+            ],
+        });
 
     /// <inheritdoc />
     public Result Configure(NSchemaApplicationBuilder builder, PluginSettings settings)
