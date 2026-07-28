@@ -1,6 +1,7 @@
+using System.Data.Common;
 using Npgsql;
 using NpgsqlTypes;
-using NSchema.Deployment.Backends;
+using NSchema.Deployment.Plugins;
 using NSchema.Model;
 using NSchema.Model.Columns;
 using NSchema.Model.CompositeTypes;
@@ -21,7 +22,26 @@ namespace NSchema.Postgres.Sql;
 
 internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) : IDatabaseIntrospector
 {
-    public async ValueTask<Database> GetDatabase(PlanningScope scope, CancellationToken cancellationToken = default)
+    private const string Source = "postgres";
+
+    /// <inheritdoc />
+    public async ValueTask<Result<Database>> GetDatabase(PlanningScope scope, CancellationToken cancellationToken = default)
+    {
+        // A database that cannot be read is an expected outcome for the caller to report. Only DbException is
+        // caught: anything else escaping the read is a defect in this introspector, and the engine treats an
+        // escaping exception as one rather than dressing it up as an environmental problem.
+        try
+        {
+            return await Read(scope, cancellationToken);
+        }
+        catch (DbException exception)
+        {
+            return Result.Failure<Database>(Diagnostic.Error(Source,
+                $"Could not read the live database: {ExceptionMessage.Describe(exception):text}"));
+        }
+    }
+
+    private async ValueTask<Database> Read(PlanningScope scope, CancellationToken cancellationToken)
     {
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
 
