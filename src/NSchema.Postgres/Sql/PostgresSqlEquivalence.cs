@@ -1,5 +1,5 @@
 using System.Globalization;
-using NSchema.Diff.Backends;
+using NSchema.Diff.Plugins;
 using NSchema.Model;
 using NSchema.Model.Columns;
 
