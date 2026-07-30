@@ -1456,7 +1456,7 @@ public sealed class PostgresSqlDialectTests(PostgresContainerFixture fixture) : 
 
     private async Task<Database> Introspect() =>
         (await new PostgresDatabaseIntrospector(_dataSource)
-            .GetDatabase(PlanningScope.To(new SchemaAddress(_schema)), TestContext.Current.CancellationToken)).Require();
+            .GetDatabase(PlanningScope.To(DatabaseAddress.Schema(_schema)), TestContext.Current.CancellationToken)).Require();
 
     private async Task Exec(string sql)
     {
