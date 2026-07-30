@@ -132,7 +132,7 @@ public sealed class PostgresPlugin : INSchemaDatabasePlugin
 
         if (options.CommandTimeout is < 0)
         {
-            diagnostics.Add(Diagnostic.Error(DiagnosticSource, "DATABASE postgres: command_timeout must not be negative."));
+            diagnostics.Add(Diagnostic.Error(DiagnosticSource, "negative-command-timeout", "DATABASE postgres: command_timeout must not be negative."));
         }
 
         if (diagnostics.Any(d => d.Severity == DiagnosticSeverity.Error))

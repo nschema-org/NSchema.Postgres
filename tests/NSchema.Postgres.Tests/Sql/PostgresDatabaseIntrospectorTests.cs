@@ -39,7 +39,7 @@ public sealed class PostgresDatabaseIntrospectorTests(PostgresContainerFixture f
 
     /// <summary>Reads the live schema scoped to the given schema names.</summary>
     private async Task<Database> Introspect(params string[] schemas) =>
-        (await _sut.GetDatabase(PlanningScope.To(schemas.Select(s => new SchemaAddress(s))), TestContext.Current.CancellationToken)).Require();
+        (await _sut.GetDatabase(PlanningScope.To(schemas.Select(s => DatabaseAddress.Schema(s))), TestContext.Current.CancellationToken)).Require();
 
     // ── Schema / table structure ──────────────────────────────────────────────
 

@@ -36,7 +36,7 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         }
         catch (DbException exception)
         {
-            return Result.Failure<Database>(Diagnostic.Error(Source,
+            return Result.Failure<Database>(Diagnostic.Error(Source, "database-unreadable",
                 $"Could not read the live database: {ExceptionMessage.Describe(exception):text}"));
         }
     }
@@ -49,7 +49,7 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         // Every address belongs to a schema (a schema address is its own), so the read narrows to those.
         var schemas = scope.IsUnscoped
             ? null
-            : scope.Addresses.Select(a => a.SchemaName).OfType<SqlIdentifier>().Distinct().Select(s => s.Value).ToArray();
+            : scope.Addresses.Select(SchemaOf).OfType<SqlIdentifier>().Distinct().Select(s => s.Value).ToArray();
 
         var tables = await QueryTables(conn, schemas, cancellationToken);
         var columns = await QueryColumns(conn, schemas, cancellationToken);
@@ -1886,4 +1886,15 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         'd' => ReferentialAction.SetDefault,
         _ => ReferentialAction.NoAction, // 'a' = NO ACTION, 'r' = RESTRICT
     };
+
+    // An address names the schema it sits in: a schema address is its own, an object and a member each carry
+    // theirs, and an extension belongs to the database rather than to any schema.
+    private static SqlIdentifier? SchemaOf(Address address) => address switch
+    {
+        DatabaseAddress { Kind: DatabaseObjectKind.Schema } schema => schema.Name,
+        ObjectAddress @object => @object.Schema,
+        MemberAddress member => member.Schema,
+        _ => null,
+    };
+
 }
