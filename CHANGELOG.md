@@ -10,7 +10,7 @@ This package uses **lockstep major versioning** with the core NSchema package: `
 
 As a consequence, breaking changes that are specific to this provider (rather than the core API) are signalled by a **minor version bump** rather than a major one, and called out explicitly in this changelog.
 
-## [Unreleased]
+## [5.0.0] - 2026-08-01
 
 v5.0 tracks the NSchema.Core 5.0 rearchitecture. The provider's behaviour is unchanged; its seams follow the new core contracts.
 
