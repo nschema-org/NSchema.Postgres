@@ -1489,6 +1489,8 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
             .Select(name => new Schema
             {
                 Name = name,
+                // Postgres provides `public`: it is a container, not something a migration creates or drops.
+                IsImplicit = name == PostgresSchemas.Provided,
                 Comment = schemaComments.GetValueOrDefault(name),
                 Grants = [.. schemaGrants.Where(g => g.SchemaName == name).Select(g => new SchemaGrant(g.Role))],
                 Tables = [.. bySchema.GetValueOrDefault(name, [])],

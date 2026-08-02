@@ -10,6 +10,13 @@ This package uses **lockstep major versioning** with the core NSchema package: `
 
 As a consequence, breaking changes that are specific to this provider (rather than the core API) are signalled by a **minor version bump** rather than a major one, and called out explicitly in this changelog.
 
+## [5.1.0] - 2026-08-02
+
+### Changed
+
+- **`CREATE SCHEMA` no longer hedges with `IF NOT EXISTS`.** This was a hack from a much earlier version that should have been removed long ago, but I forgot about it.
+- **`public` is reported as a schema Postgres provides.** It is a container rather than something a migration creates, and declaring it is an error.
+
 ## [5.0.0] - 2026-08-01
 
 v5.0 tracks the NSchema.Core 5.0 rearchitecture. The provider's behaviour is unchanged; its seams follow the new core contracts.

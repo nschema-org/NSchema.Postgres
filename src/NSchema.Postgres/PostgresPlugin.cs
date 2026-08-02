@@ -140,6 +140,8 @@ public sealed class PostgresPlugin : INSchemaDatabasePlugin
             return Result.From(diagnostics);
         }
 
+        builder.AddProjectPolicy<PostgresProvidedSchemaPolicy>();
+
         builder.UsePostgres(dataSource =>
         {
             // Order matters: assigning ConnectionString re-parses the whole string, so it must precede the discrete overrides.

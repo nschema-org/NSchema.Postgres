@@ -8,7 +8,9 @@ internal sealed partial class PostgresSqlDialect
     // ── Schemas ───────────────────────────────────────────────────────────────
 
     protected override Result<IReadOnlyList<SqlStatement>> CreateSchema(CreateSchema action) =>
-        Statement($"CREATE SCHEMA IF NOT EXISTS {Quote(action.SchemaName)}");
+        // No IF NOT EXISTS: a declarative tool that hedges its own DDL is admitting it does not know what its
+        // plan will do. A schema the database provides never reaches here — it is implicit.
+        Statement($"CREATE SCHEMA {Quote(action.SchemaName)}");
 
     protected override Result<IReadOnlyList<SqlStatement>> GrantSchemaUsage(GrantSchemaUsage action) =>
         Statement($"GRANT USAGE ON SCHEMA {Quote(action.SchemaName)} TO {Quote(action.Role)}");
