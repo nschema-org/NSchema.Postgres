@@ -1,6 +1,6 @@
 ﻿[
   {
-    Sql: CREATE SCHEMA IF NOT EXISTS "sales",
+    Sql: CREATE SCHEMA "sales",
     RunOutsideTransaction: false
   },
   {
