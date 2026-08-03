@@ -8,12 +8,19 @@ internal sealed partial class PostgresSqlDialect
 {
     // ── Routines ──────────────────────────────────────────────────────────────
 
-    // A routine Add and a definition-only Modify both arrive as CreateRoutine; CREATE OR REPLACE serves both.
-    // Functions and procedures are one model distinguished by RoutineKind, so a single set of actions carries the
-    // keyword. The model has no overloading (one routine per name), so drops, renames and comments omit the
-    // signature — Postgres resolves the bare name, and rejects it loudly if an out-of-model overload makes it
-    // ambiguous.
+    // A create is a plain CREATE: if the routine already exists, the database has drifted from the plan's
+    // belief, and Postgres saying so is the correct outcome. Functions and procedures are one model
+    // distinguished by RoutineKind, so a single set of actions carries the keyword. The model has no
+    // overloading (one routine per name), so drops, renames and comments omit the signature — Postgres
+    // resolves the bare name, and rejects it loudly if an out-of-model overload makes it ambiguous.
     protected override Result<IReadOnlyList<SqlStatement>> CreateRoutine(CreateRoutine action)
+    {
+        var routine = action.Routine;
+        return Statement($"CREATE {RoutineKeyword(routine.RoutineKind)} {Qualify(action.SchemaName, routine.Name)}({routine.Arguments.Value}) {routine.Definition.Value}");
+    }
+
+    // A definition-only change replaces in place; the plan knows the routine exists, so OR REPLACE is honest here.
+    protected override Result<IReadOnlyList<SqlStatement>> ReplaceRoutine(ReplaceRoutine action)
     {
         var routine = action.Routine;
         return Statement($"CREATE OR REPLACE {RoutineKeyword(routine.RoutineKind)} {Qualify(action.SchemaName, routine.Name)}({routine.Arguments.Value}) {routine.Definition.Value}");
