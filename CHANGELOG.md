@@ -10,6 +10,14 @@ This package uses **lockstep major versioning** with the core NSchema package: `
 
 As a consequence, breaking changes that are specific to this provider (rather than the core API) are signalled by a **minor version bump** rather than a major one, and called out explicitly in this changelog.
 
+## [5.2.0] - 2026-08-03
+
+### Added
+
+- **The engine's type vocabulary is captured.** Introspection now records the types Postgres and its installed extensions provide (`pg_catalog` base, range, and multirange types, arrays included) as `NativeType`s in the snapshot, spelled in the model's canonical names. With a captured vocabulary, a plan can verify every type the project references — `pg_catalog.tsvector` and `text[]` columns on imported schemas now resolve instead of blocking, and a reference to a type nothing provides is reported at plan time.
+- **Extension-provided types record their provenance.** A type an extension installs (e.g. `citext`, arrays included) carries `ProvidedBy`, so a plan that drops the extension accounts for everything still using its types.
+- **`pg_catalog` is reported as a schema Postgres provides**, alongside `public`.
+
 ## [5.1.0] - 2026-08-02
 
 ### Changed

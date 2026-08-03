@@ -1,6 +1,7 @@
 using Npgsql;
 using NSchema.Model;
 using NSchema.Model.Columns;
+using NSchema.Model.Extensions;
 using NSchema.Model.Routines;
 using NSchema.Model.Sequences;
 using NSchema.Model.Tables;
@@ -1161,5 +1162,67 @@ public sealed class PostgresDatabaseIntrospectorTests(PostgresContainerFixture f
         {
             await Exec($"DROP SCHEMA IF EXISTS \"{other}\" CASCADE");
         }
+    }
+
+    // ── Native types ──────────────────────────────────────────────────────────
+
+    /// <summary>Reads the live schema without a scope, so the engine's own schemas surface.</summary>
+    private async Task<Database> IntrospectAll() =>
+        (await _sut.GetDatabase(PlanningScope.All, TestContext.Current.CancellationToken)).Require();
+
+    [Fact]
+    public async Task GetDatabase_Unscoped_CapturesTheEngineVocabulary()
+    {
+        // Act
+        var model = await IntrospectAll();
+
+        // Assert — pg_catalog surfaces as an implicit container holding the engine's types, spelled in the
+        // model's canonical names: the same universe the column mapping produces.
+        var catalog = model.Schemas.Single(s => s.Name == "pg_catalog");
+        catalog.IsImplicit.ShouldBeTrue();
+        var names = catalog.NativeTypes.Select(t => t.Name.Value).ToHashSet();
+        names.ShouldContain("guid");      // normalized from uuid
+        names.ShouldContain("int");       // normalized from int4
+        names.ShouldContain("decimal");   // normalized from numeric
+        names.ShouldContain("tsvector");  // a built-in the model has no spelling for, verbatim
+        names.ShouldContain("_text");     // array types are part of the vocabulary
+        names.ShouldNotContain("uuid");   // the catalog spelling is folded away
+        names.ShouldNotContain("void");   // pseudo types cannot type a column
+        names.ShouldNotContain("pg_class"); // rowtypes introspect as tables, not types
+        catalog.NativeTypes.Count(t => t.Name == "char").ShouldBe(1); // char and bpchar meet at one canonical name
+    }
+
+    [Fact]
+    public async Task GetDatabase_EngineType_CarriesNoProvenance()
+    {
+        // Act
+        var model = await IntrospectAll();
+
+        // Assert
+        var catalog = model.Schemas.Single(s => s.Name == "pg_catalog");
+        catalog.NativeTypes.Single(t => t.Name == "tsvector").ProvidedBy.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetDatabase_ExtensionType_CarriesItsProvenance()
+    {
+        // Act — the fixture installs citext into public.
+        var model = await IntrospectAll();
+
+        // Assert — the type and its array twin both record the providing extension; the array carries no
+        // extension dependency of its own, so its element's counts for it.
+        var provided = model.Schemas.Single(s => s.Name == "public").NativeTypes;
+        provided.Single(t => t.Name == "citext").ProvidedBy.ShouldBe(new ExtensionReference("citext"));
+        provided.Single(t => t.Name == "_citext").ProvidedBy.ShouldBe(new ExtensionReference("citext"));
+    }
+
+    [Fact]
+    public async Task GetDatabase_ScopedRead_ExcludesOutOfScopeNativeTypes()
+    {
+        // Act
+        var model = await Introspect(_schema);
+
+        // Assert — the vocabulary is filtered like everything else; the scoped schema holds no natives.
+        model.Schemas.ShouldHaveSingleItem().NativeTypes.ShouldBeEmpty();
     }
 }

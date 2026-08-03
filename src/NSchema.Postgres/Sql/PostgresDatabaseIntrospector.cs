@@ -15,6 +15,7 @@ using NSchema.Model.Schemas;
 using NSchema.Model.Sequences;
 using NSchema.Model.Tables;
 using NSchema.Model.Triggers;
+using NSchema.Model.Types;
 using NSchema.Model.Views;
 using NSchema.Postgres.Models;
 
@@ -79,6 +80,7 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         var domainChecks = await QueryDomainChecks(conn, schemas, cancellationToken);
         var compositeTypes = await QueryCompositeTypes(conn, schemas, cancellationToken);
         var compositeFields = await QueryCompositeFields(conn, schemas, cancellationToken);
+        var nativeTypes = await QueryNativeTypes(conn, schemas, cancellationToken);
         var functions = await QueryRoutines(conn, schemas, FunctionKind, cancellationToken);
         var functionComments = await QueryRoutineComments(conn, schemas, FunctionKind, cancellationToken);
         var procedures = await QueryRoutines(conn, schemas, ProcedureKind, cancellationToken);
@@ -89,7 +91,7 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
             schemaComments, tableComments, columnComments, indexComments, constraintComments,
             schemaGrants, tableGrants, views, viewComments, viewDependencies,
             enums, enumComments, sequences, sequenceComments,
-            domains, domainChecks, compositeTypes, compositeFields,
+            domains, domainChecks, compositeTypes, compositeFields, nativeTypes,
             functions, functionComments, procedures, procedureComments,
             extensions
         );
@@ -633,6 +635,45 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
                 MaxLength: reader.IsDBNull(6) ? null : reader.GetInt32(6),
                 Precision: reader.IsDBNull(7) ? null : reader.GetInt32(7),
                 Scale: reader.IsDBNull(8) ? null : reader.GetInt32(8)
+            ));
+        }
+
+        return rows;
+    }
+
+    private static async Task<List<NativeTypeRow>> QueryNativeTypes(NpgsqlConnection conn, string[]? schemas, CancellationToken ct)
+    {
+        var rows = new List<NativeTypeRow>();
+        await using var cmd = conn.CreateCommand();
+        // The engine's type vocabulary: base, range, and multirange types the engine (pg_catalog) or an
+        // installed extension provides. Pseudo types are excluded — nothing a column can be typed with —
+        // as are rowtypes, domains, enums, and composites, which introspect as their own kinds. An array
+        // type carries no extension dependency of its own, so its element's (typelem) counts for it.
+        cmd.CommandText = """
+            SELECT DISTINCT n.nspname AS schema_name,
+                   t.typname AS type_name,
+                   e.extname AS extension_name
+            FROM pg_type t
+            JOIN pg_namespace n ON n.oid = t.typnamespace
+            LEFT JOIN pg_depend d ON d.classid = 'pg_type'::regclass
+                                 AND d.objid IN (t.oid, t.typelem)
+                                 AND d.refclassid = 'pg_extension'::regclass
+                                 AND d.deptype = 'e'
+            LEFT JOIN pg_extension e ON e.oid = d.refobjid
+            WHERE t.typtype IN ('b', 'r', 'm')
+            AND (n.nspname = 'pg_catalog' OR e.extname IS NOT NULL)
+            AND (@schemas::text[] IS NULL OR n.nspname = ANY(@schemas))
+            ORDER BY n.nspname, t.typname
+            """;
+        AddSchemasParameter(cmd, schemas);
+
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            rows.Add(new NativeTypeRow(
+                Schema: reader.GetString(0),
+                Name: reader.GetString(1),
+                Extension: reader.IsDBNull(2) ? null : reader.GetString(2)
             ));
         }
 
@@ -1416,6 +1457,7 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         List<DomainCheckRow> domainChecks,
         List<CompositeTypeRow> compositeTypes,
         List<CompositeFieldRow> compositeFields,
+        List<NativeTypeRow> nativeTypes,
         List<RoutineRow> functions,
         Dictionary<(string, string), string?> functionComments,
         List<RoutineRow> procedures,
@@ -1473,6 +1515,18 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
             .GroupBy(c => c.Schema)
             .ToDictionary(g => g.Key, g => g.Select(c => MapCompositeType(c, compositeFields)).ToList());
 
+        // Names normalize to the model's canonical spellings, the same universe the column mapping produces,
+        // so a reference and its vocabulary entry always compare in one spelling. Two catalog rows can meet
+        // at one canonical name (char and bpchar), so entries dedupe after normalizing.
+        var nativeTypesBySchema = nativeTypes
+            .Select(t => (t.Schema, Type: new NativeType
+            {
+                Name = NormalizeNativeTypeName(t.Name),
+                ProvidedBy = t.Extension is null ? null : new ExtensionReference(t.Extension),
+            }))
+            .GroupBy(x => x.Schema)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.Type).DistinctBy(t => t.Name).ToList());
+
         // Drive schema list from what actually exists in the database, not from what was requested.
         var existingSchemas = schemaComments.Keys
             .Union(bySchema.Keys)
@@ -1482,6 +1536,7 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
             .Union(routinesBySchema.Keys)
             .Union(domainsBySchema.Keys)
             .Union(compositeTypesBySchema.Keys)
+            .Union(nativeTypesBySchema.Keys)
             .Union(schemaGrants.Select(g => g.SchemaName))
             .Distinct(StringComparer.Ordinal);
 
@@ -1489,8 +1544,8 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
             .Select(name => new Schema
             {
                 Name = name,
-                // Postgres provides `public`: it is a container, not something a migration creates or drops.
-                IsImplicit = name == PostgresSchemas.Provided,
+                // Postgres provides `public` and `pg_catalog`: containers, not something a migration creates or drops.
+                IsImplicit = name is PostgresSchemas.Provided or PostgresSchemas.Catalog,
                 Comment = schemaComments.GetValueOrDefault(name),
                 Grants = [.. schemaGrants.Where(g => g.SchemaName == name).Select(g => new SchemaGrant(g.Role))],
                 Tables = [.. bySchema.GetValueOrDefault(name, [])],
@@ -1500,6 +1555,7 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
                 Routines = [.. routinesBySchema.GetValueOrDefault(name, [])],
                 Domains = [.. domainsBySchema.GetValueOrDefault(name, [])],
                 CompositeTypes = [.. compositeTypesBySchema.GetValueOrDefault(name, [])],
+                NativeTypes = [.. nativeTypesBySchema.GetValueOrDefault(name, [])],
             })
             .ToList();
 
@@ -1820,6 +1876,18 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
             : null,
         GeneratedExpression = row.GeneratedExpression,
         Comment = columnComments.GetValueOrDefault((row.TableSchema, row.TableName, row.ColumnName)),
+    };
+
+    /// <summary>
+    /// The canonical model spelling of a catalog type name (<c>int4</c> to <c>int</c>, <c>uuid</c> to
+    /// <c>guid</c>); a name the model has no spelling for is kept verbatim.
+    /// </summary>
+    internal static SqlIdentifier NormalizeNativeTypeName(string typeName) => typeName switch
+    {
+        // Parse cannot read these facet-less: the facets belong to a use, but the catalog names the type.
+        "numeric" => "decimal",
+        "bpchar" or "char" => "char",
+        _ => SqlType.Parse(typeName).Name,
     };
 
     private static SqlType MapSqlType(string dataType, string udtName, string? udtSchema, string? domainSchema, string? domainName, int? maxLength, int? precision, int? scale)
