@@ -1,6 +1,6 @@
 ﻿[
   {
-    Sql: CREATE OR REPLACE PROCEDURE "public"."archive_users"(cutoff date) LANGUAGE sql AS $$ DELETE FROM public.users WHERE created_at < cutoff $$,
+    Sql: CREATE PROCEDURE "public"."archive_users"(cutoff date) LANGUAGE sql AS $$ DELETE FROM public.users WHERE created_at < cutoff $$,
     RunOutsideTransaction: false
   },
   {

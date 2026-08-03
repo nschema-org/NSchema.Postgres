@@ -733,20 +733,33 @@ public sealed class PostgresSqlDialectTests(PostgresContainerFixture fixture) : 
     }
 
     [Fact]
-    public async Task CreateView_OnExistingView_ReplacesDefinition()
+    public async Task ReplaceView_OnExistingView_ReplacesDefinition()
     {
-        // Arrange — CreateView serves both add and body-modify; the second create must replace, not error.
+        // Arrange — the plan knows the view exists, so the replacement happens in place.
         await Exec($"""CREATE TABLE "{_schema}"."users" (id integer, email text)""");
         await Exec($"""CREATE VIEW "{_schema}"."u" AS SELECT id FROM "{_schema}"."users" """);
         var replacement = new View { Name = "u", Body = $"""SELECT id, email FROM "{_schema}"."users" """ };
 
         // Act
-        await Run(new CreateView(_schema, replacement));
+        await Run(new ReplaceView(_schema, replacement));
 
         // Assert — the definition now includes the email column.
         var def = await ScalarString(
             $"SELECT pg_get_viewdef('\"{_schema}\".\"u\"'::regclass)");
         def.ShouldContain("email");
+    }
+
+    [Fact]
+    public async Task CreateView_OnExistingView_FailsLoudly()
+    {
+        // Arrange — a create against something that already exists is drift, and the engine must say so
+        // rather than the dialect absorbing it.
+        await Exec($"""CREATE TABLE "{_schema}"."users" (id integer, email text)""");
+        await Exec($"""CREATE VIEW "{_schema}"."u" AS SELECT id FROM "{_schema}"."users" """);
+
+        // Act + Assert
+        await Should.ThrowAsync<PostgresException>(() =>
+            Run(new CreateView(_schema, new View { Name = "u", Body = $"""SELECT id, email FROM "{_schema}"."users" """ })));
     }
 
     [Fact]
@@ -1183,17 +1196,29 @@ public sealed class PostgresSqlDialectTests(PostgresContainerFixture fixture) : 
     }
 
     [Fact]
-    public async Task CreateFunction_OnExistingFunction_ReplacesDefinition()
+    public async Task ReplaceFunction_OnExistingFunction_ReplacesDefinition()
     {
-        // Arrange — CreateFunction serves both add and definition-only modify; the second create must replace.
+        // Arrange — the plan knows the function exists, so the replacement happens in place.
         await Exec($"""CREATE FUNCTION "{_schema}".answer() RETURNS integer LANGUAGE sql AS $$ SELECT 1 $$""");
         var replacement = Routine(RoutineKind.Function, "answer", "", "RETURNS integer LANGUAGE sql AS $$ SELECT 42 $$");
 
         // Act
-        await Run(new CreateRoutine(_schema, replacement));
+        await Run(new ReplaceRoutine(_schema, replacement));
 
         // Assert
         (await ScalarString($"""SELECT "{_schema}".answer()::text""")).ShouldBe("42");
+    }
+
+    [Fact]
+    public async Task CreateFunction_OnExistingFunction_FailsLoudly()
+    {
+        // Arrange — a create against something that already exists is drift, and the engine must say so
+        // rather than the dialect absorbing it.
+        await Exec($"""CREATE FUNCTION "{_schema}".answer() RETURNS integer LANGUAGE sql AS $$ SELECT 1 $$""");
+
+        // Act + Assert
+        await Should.ThrowAsync<PostgresException>(() =>
+            Run(new CreateRoutine(_schema, Routine(RoutineKind.Function, "answer", "", "RETURNS integer LANGUAGE sql AS $$ SELECT 42 $$"))));
     }
 
     [Fact]

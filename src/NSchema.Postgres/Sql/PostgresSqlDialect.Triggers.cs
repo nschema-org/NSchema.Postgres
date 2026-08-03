@@ -1,4 +1,5 @@
 using System.Text;
+using NSchema.Model;
 using NSchema.Model.Triggers;
 using NSchema.Plan.Domain;
 using NSchema.Plan.Domain.Triggers;
@@ -9,11 +10,17 @@ internal sealed partial class PostgresSqlDialect
 {
     // ── Triggers ──────────────────────────────────────────────────────────────
 
-    // CREATE TRIGGER name {BEFORE|AFTER|INSTEAD OF} {event [OR …]} ON s.t FOR EACH {ROW|STATEMENT}
+    // CREATE [OR REPLACE] TRIGGER name {BEFORE|AFTER|INSTEAD OF} {event [OR …]} ON s.t FOR EACH {ROW|STATEMENT}
     //   [WHEN (cond)] EXECUTE FUNCTION fn(args)
-    protected override Result<IReadOnlyList<SqlStatement>> CreateTrigger(CreateTrigger action)
+    protected override Result<IReadOnlyList<SqlStatement>> CreateTrigger(CreateTrigger action) =>
+        RenderTrigger(action, action.Table, action.Trigger, orReplace: false);
+
+    // A replacement is in place: CREATE OR REPLACE TRIGGER (Postgres 14+).
+    protected override Result<IReadOnlyList<SqlStatement>> ReplaceTrigger(ReplaceTrigger action) =>
+        RenderTrigger(action, action.Table, action.Trigger, orReplace: true);
+
+    private Result<IReadOnlyList<SqlStatement>> RenderTrigger(MigrationAction action, ObjectAddress table, Trigger trigger, bool orReplace)
     {
-        var trigger = action.Trigger;
         if (trigger.Function is not { } function)
         {
             // Postgres triggers execute a function; a trigger carrying only a body belongs to another engine.
@@ -21,8 +28,8 @@ internal sealed partial class PostgresSqlDialect
         }
 
         var sql = new StringBuilder(
-            $"CREATE TRIGGER {Quote(trigger.Name)} {TriggerTimingText(trigger.Timing)} {TriggerEventsText(trigger)} " +
-            $"ON {Qualify(action.Table)} FOR EACH {(trigger.Level == TriggerLevel.Row ? "ROW" : "STATEMENT")}");
+            $"CREATE {(orReplace ? "OR REPLACE " : "")}TRIGGER {Quote(trigger.Name)} {TriggerTimingText(trigger.Timing)} {TriggerEventsText(trigger)} " +
+            $"ON {Qualify(table)} FOR EACH {(trigger.Level == TriggerLevel.Row ? "ROW" : "STATEMENT")}");
         if (trigger.When is { } when)
         {
             sql.Append($" WHEN ({when.Value})");

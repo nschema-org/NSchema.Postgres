@@ -246,6 +246,15 @@ public sealed class PostgresSqlDialectSnapshotTests
             When = "new.active",
             FunctionArguments = "'audit'",
         }),
+        // A replacement is in place: CREATE OR REPLACE TRIGGER.
+        new ReplaceTrigger(new ObjectAddress("public", "users"), new Trigger
+        {
+            Name = "users_audit",
+            Timing = TriggerTiming.After,
+            Events = TriggerEvent.Insert | TriggerEvent.Update | TriggerEvent.Delete,
+            Function = new RoutineReference("public", "log_change"),
+            Level = TriggerLevel.Row,
+        }),
         new CreateTrigger(new ObjectAddress("public", "logs"), new Trigger
         {
             Name = "logs_truncate",
@@ -262,6 +271,7 @@ public sealed class PostgresSqlDialectSnapshotTests
     [Fact]
     public Task ViewOperations() => VerifyActions(
         new CreateView("public", new View { Name = "active_users", Body = "SELECT id, email FROM public.users WHERE active" }),
+        new ReplaceView("public", new View { Name = "active_users", Body = "SELECT id, email, created_at FROM public.users WHERE active" }),
         new RenameView(new ObjectAddress("public", "legacy_active"), "active_users"),
         new SetViewComment(new ObjectAddress("public", "active_users"), null, "Active users only"),
         new SetViewComment(new ObjectAddress("public", "active_users"), "Active users only", null),
@@ -366,6 +376,8 @@ public sealed class PostgresSqlDialectSnapshotTests
     public Task FunctionOperations() => VerifyActions(
         new CreateRoutine("public", Routine(RoutineKind.Function, "active_user_count", "",
             "RETURNS integer LANGUAGE sql AS $$ SELECT count(*) FROM public.users WHERE active $$")),
+        new ReplaceRoutine("public", Routine(RoutineKind.Function, "active_user_count", "",
+            "RETURNS integer LANGUAGE sql AS $$ SELECT count(*) FROM public.users WHERE active AND NOT banned $$")),
         new RenameRoutine(new ObjectAddress("public", "user_count"), "active_user_count", RoutineKind.Function),
         // A signature change: drop + recreate, re-issuing the comment the drop discarded.
         new RecreateRoutine("public", Routine(RoutineKind.Function, "add_numbers", "a integer, b integer, c integer DEFAULT 0",

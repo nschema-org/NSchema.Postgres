@@ -10,6 +10,17 @@ This package uses **lockstep major versioning** with the core NSchema package: `
 
 As a consequence, breaking changes that are specific to this provider (rather than the core API) are signalled by a **minor version bump** rather than a major one, and called out explicitly in this changelog.
 
+## [5.3.0] - 2026-08-03
+
+### Changed
+
+- **A create is a create.** `CREATE FUNCTION`, `CREATE PROCEDURE`, and `CREATE VIEW` render without `OR REPLACE` when the plan is creating; the in-place forms render only for the new replace actions, where the plan knows the object exists.
+- **Trigger changes replace in place.** A changed trigger renders as `CREATE OR REPLACE TRIGGER` instead of a drop and a create.
+
+### Fixed
+
+- **Functions no longer fail to create when they reference tables from the same plan.** NSchema.Core 5.3 orders routines after the tables they may reference, so a `LANGUAGE sql` body or a rowtype signature resolves during a rebuild.
+
 ## [5.2.0] - 2026-08-03
 
 ### Added

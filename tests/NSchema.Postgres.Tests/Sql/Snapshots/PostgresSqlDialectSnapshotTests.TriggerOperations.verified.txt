@@ -4,6 +4,10 @@
     RunOutsideTransaction: false
   },
   {
+    Sql: CREATE OR REPLACE TRIGGER "users_audit" AFTER INSERT OR UPDATE OR DELETE ON "public"."users" FOR EACH ROW EXECUTE FUNCTION "public"."log_change"(),
+    RunOutsideTransaction: false
+  },
+  {
     Sql: CREATE TRIGGER "logs_truncate" BEFORE TRUNCATE ON "public"."logs" FOR EACH STATEMENT EXECUTE FUNCTION "on_truncate"(),
     RunOutsideTransaction: false
   },

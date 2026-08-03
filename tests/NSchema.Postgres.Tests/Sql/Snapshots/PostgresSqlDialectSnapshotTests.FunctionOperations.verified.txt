@@ -1,6 +1,10 @@
 ﻿[
   {
-    Sql: CREATE OR REPLACE FUNCTION "public"."active_user_count"() RETURNS integer LANGUAGE sql AS $$ SELECT count(*) FROM public.users WHERE active $$,
+    Sql: CREATE FUNCTION "public"."active_user_count"() RETURNS integer LANGUAGE sql AS $$ SELECT count(*) FROM public.users WHERE active $$,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: CREATE OR REPLACE FUNCTION "public"."active_user_count"() RETURNS integer LANGUAGE sql AS $$ SELECT count(*) FROM public.users WHERE active AND NOT banned $$,
     RunOutsideTransaction: false
   },
   {
