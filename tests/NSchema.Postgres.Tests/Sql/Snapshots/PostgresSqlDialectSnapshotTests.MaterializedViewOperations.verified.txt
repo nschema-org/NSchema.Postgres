@@ -4,6 +4,10 @@
     RunOutsideTransaction: false
   },
   {
+    Sql: CREATE UNIQUE INDEX "daily_totals_date" ON "public"."daily_totals" ("date"),
+    RunOutsideTransaction: false
+  },
+  {
     Sql: CREATE UNIQUE INDEX "idx_daily_totals_date" ON "public"."daily_totals" ("date"),
     RunOutsideTransaction: false
   },

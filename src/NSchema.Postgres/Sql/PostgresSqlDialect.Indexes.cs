@@ -1,3 +1,4 @@
+using NSchema.Model;
 using NSchema.Model.Indexes;
 using NSchema.Plan.Domain;
 using NSchema.Plan.Domain.Indexes;
@@ -9,14 +10,16 @@ internal sealed partial class PostgresSqlDialect
 
     // ── Indexes ───────────────────────────────────────────────────────────────
 
-    protected override Result<IReadOnlyList<SqlStatement>> CreateIndex(CreateIndex action)
+    protected override Result<IReadOnlyList<SqlStatement>> CreateIndex(CreateIndex action) =>
+        Statement(IndexSql(action.Table, action.Index));
+
+    private string IndexSql(ObjectAddress owner, TableIndex index)
     {
-        var index = action.Index;
         var method = index.Method is { } m ? $" USING {m.Value}" : "";
         var keys = string.Join(", ", index.Columns.Select(IndexKeyText));
         var include = index.Include.Count > 0 ? $" INCLUDE ({ColumnList(index.Include)})" : "";
-        var sql = $"CREATE {(index.IsUnique ? "UNIQUE " : "")}INDEX {Quote(index.Name)} ON {Qualify(action.Table)}{method} ({keys}){include}";
-        return Statement(index.Predicate is { } predicate ? $"{sql} WHERE {predicate.Value}" : sql);
+        var sql = $"CREATE {(index.IsUnique ? "UNIQUE " : "")}INDEX {Quote(index.Name)} ON {Qualify(owner)}{method} ({keys}){include}";
+        return index.Predicate is { } predicate ? $"{sql} WHERE {predicate.Value}" : sql;
     }
 
     protected override Result<IReadOnlyList<SqlStatement>> DropIndex(DropIndex action) =>
