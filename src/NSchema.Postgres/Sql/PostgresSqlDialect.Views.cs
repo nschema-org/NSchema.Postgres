@@ -1,3 +1,4 @@
+using NSchema.Model;
 using NSchema.Plan.Domain;
 using NSchema.Plan.Domain.Views;
 
@@ -8,9 +9,17 @@ internal sealed partial class PostgresSqlDialect
     // ── Views ─────────────────────────────────────────────────────────────────
 
     // A create is a plain CREATE: if the view already exists, the database has drifted from the plan's
-    // belief, and Postgres saying so is the correct outcome.
-    protected override Result<IReadOnlyList<SqlStatement>> CreateView(CreateView action) =>
-        Statement($"CREATE {ViewKind(action.View.IsMaterialized)} {Qualify(action.SchemaName, action.View.Name)} AS {action.View.Body.Value}");
+    // belief, and Postgres saying so is the correct outcome. A materialized view's indexes ride its
+    // definition (the linearizer emits no separate CreateIndex for a created view), so they render here.
+    protected override Result<IReadOnlyList<SqlStatement>> CreateView(CreateView action)
+    {
+        var view = action.View;
+        var address = new ObjectAddress(action.SchemaName, view.Name);
+        return Statements([
+            new($"CREATE {ViewKind(view.IsMaterialized)} {Qualify(action.SchemaName, view.Name)} AS {view.Body.Value}"),
+            .. view.Indexes.Select(index => new SqlStatement(IndexSql(address, index))),
+        ]);
+    }
 
     // A body change replaces in place; the plan knows the view exists, so OR REPLACE is honest here. An
     // incompatible output-column change (rename/drop/retype/reorder) is rejected loudly by Postgres rather

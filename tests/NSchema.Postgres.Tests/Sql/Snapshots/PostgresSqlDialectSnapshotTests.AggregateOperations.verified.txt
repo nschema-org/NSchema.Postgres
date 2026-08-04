@@ -1,0 +1,38 @@
+﻿[
+  {
+    Sql: CREATE AGGREGATE "public"."group_concat"(text) (SFUNC = _group_concat, STYPE = text),
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: DROP AGGREGATE "public"."group_concat"(text),
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: CREATE AGGREGATE "public"."group_concat"(text) (SFUNC = _group_concat, STYPE = text, INITCOND = ''),
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: COMMENT ON AGGREGATE "public"."group_concat"(text) IS $comment$Joins strings$comment$,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: DROP AGGREGATE "public"."group_concat"(text),
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: CREATE AGGREGATE "public"."group_concat"(text, text) (SFUNC = _group_concat_delim, STYPE = text),
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER AGGREGATE "public"."group_concat"(text) RENAME TO "string_join",
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: COMMENT ON AGGREGATE "public"."group_concat"(text) IS $comment$Joins strings$comment$,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: DROP AGGREGATE "public"."group_concat"(text),
+    RunOutsideTransaction: false
+  }
+]

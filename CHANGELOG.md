@@ -10,6 +10,16 @@ This package uses **lockstep major versioning** with the core NSchema package: `
 
 As a consequence, breaking changes that are specific to this provider (rather than the core API) are signalled by a **minor version bump** rather than a major one, and called out explicitly in this changelog.
 
+## [5.4.0] - 2026-08-04
+
+### Added
+
+- **Aggregates.** `CREATE AGGREGATE` renders and introspects: the definition is reconstructed from `pg_aggregate` (canonical option tuple, non-default options only), a replacement decomposes to drop + create (Postgres has no `CREATE OR REPLACE AGGREGATE`), and every addressing statement carries the signature Postgres requires.
+
+### Fixed
+
+- **A created materialized view brings its indexes.** Creating a materialized view now renders its index definitions alongside it; previously they were left out of the plan.
+
 ## [5.3.0] - 2026-08-03
 
 ### Changed

@@ -279,9 +279,16 @@ public sealed class PostgresSqlDialectSnapshotTests
 
     [Fact]
     public Task MaterializedViewOperations() => VerifyActions(
-        // A materialized view: CREATE MATERIALIZED VIEW (never CREATE OR REPLACE), an index on it (a plain
-        // CreateIndex), and the MATERIALIZED variants of rename/comment/drop.
-        new CreateView("public", new View { Name = "daily_totals", Body = "SELECT date, sum(amount) AS total FROM public.sales GROUP BY date", IsMaterialized = true }),
+        // A materialized view: CREATE MATERIALIZED VIEW (never CREATE OR REPLACE) with its definition's
+        // indexes riding along, an in-place index add (a plain CreateIndex), and the MATERIALIZED variants
+        // of rename/comment/drop.
+        new CreateView("public", new View
+        {
+            Name = "daily_totals",
+            Body = "SELECT date, sum(amount) AS total FROM public.sales GROUP BY date",
+            IsMaterialized = true,
+            Indexes = [new TableIndex { Name = "daily_totals_date", Columns = ["date"], IsUnique = true }],
+        }),
         new CreateIndex(new ObjectAddress("public", "daily_totals"), new TableIndex { Name = "idx_daily_totals_date", Columns = ["date"], IsUnique = true }),
         new RenameView(new ObjectAddress("public", "legacy_totals"), "daily_totals", IsMaterialized: true),
         new SetViewComment(new ObjectAddress("public", "daily_totals"), null, "Daily rollup", IsMaterialized: true),
@@ -387,6 +394,22 @@ public sealed class PostgresSqlDialectSnapshotTests
         new SetRoutineComment(new ObjectAddress("public", "active_user_count"), null, "Count of active users", RoutineKind.Function),
         new SetRoutineComment(new ObjectAddress("public", "active_user_count"), "Count of active users", null, RoutineKind.Function),
         new DropRoutine(new ObjectAddress("public", "active_user_count"), RoutineKind.Function));
+
+    // ── Aggregates ────────────────────────────────────────────────────────────
+
+    [Fact]
+    public Task AggregateOperations() => VerifyActions(
+        new CreateRoutine("public", Routine(RoutineKind.Aggregate, "group_concat", "text",
+            "(SFUNC = _group_concat, STYPE = text)")),
+        // Postgres has no CREATE OR REPLACE AGGREGATE, so a replacement decomposes to drop + create,
+        // re-issuing the comment the drop discards. Every addressing form carries the signature.
+        new ReplaceRoutine("public", Routine(RoutineKind.Aggregate, "group_concat", "text",
+            "(SFUNC = _group_concat, STYPE = text, INITCOND = '')", comment: "Joins strings")),
+        new RecreateRoutine("public", Routine(RoutineKind.Aggregate, "group_concat", "text, text",
+            "(SFUNC = _group_concat_delim, STYPE = text)"), PreviousArguments: new SqlText("text")),
+        new RenameRoutine(new ObjectAddress("public", "group_concat"), "string_join", RoutineKind.Aggregate, new SqlText("text")),
+        new SetRoutineComment(new ObjectAddress("public", "group_concat"), null, "Joins strings", RoutineKind.Aggregate, new SqlText("text")),
+        new DropRoutine(new ObjectAddress("public", "group_concat"), RoutineKind.Aggregate, new SqlText("text")));
 
     // ── Procedures ────────────────────────────────────────────────────────────
 

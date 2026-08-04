@@ -1096,16 +1096,19 @@ public sealed class PostgresDatabaseIntrospectorTests(PostgresContainerFixture f
     }
 
     [Fact]
-    public async Task GetDatabase_Aggregate_IsNotReturnedAsFunction()
+    public async Task GetDatabase_Aggregate_IsCapturedAsItsOwnKind()
     {
-        // Arrange — an aggregate is a pg_proc row too (prokind 'a'), but it is not part of the model.
+        // Arrange — an aggregate is a pg_proc row too (prokind 'a'), captured as a routine of its own kind;
+        // a catalog transition function (int4pl) spells bare, as a dump would write it.
         await Exec($"""CREATE AGGREGATE "{_schema}".int_sum (integer) (sfunc = int4pl, stype = integer)""");
 
         // Act
         var schema = (await Introspect(_schema)).Schemas[0];
 
         // Assert
-        schema.Routines.ShouldBeEmpty();
+        var aggregate = schema.Routines.ShouldHaveSingleItem();
+        aggregate.RoutineKind.ShouldBe(RoutineKind.Aggregate);
+        aggregate.Definition.Value.ShouldBe("(SFUNC = int4pl, STYPE = integer)");
     }
 
     [Fact]
@@ -1162,6 +1165,28 @@ public sealed class PostgresDatabaseIntrospectorTests(PostgresContainerFixture f
         {
             await Exec($"DROP SCHEMA IF EXISTS \"{other}\" CASCADE");
         }
+    }
+
+    // ── Aggregates ────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetDatabase_Aggregate_ReconstructsItsDefinition()
+    {
+        // Arrange — an aggregate has no body to read back (pg_get_functiondef refuses it); the definition
+        // is rebuilt from pg_aggregate as the canonical option tuple.
+        await Exec($"""CREATE FUNCTION "{_schema}"."concat_pair"(text, text) RETURNS text LANGUAGE sql AS $$ SELECT $1 || ',' || $2 $$""");
+        await Exec($"""CREATE AGGREGATE "{_schema}"."group_concat"(text) (SFUNC = "{_schema}".concat_pair, STYPE = text)""");
+
+        // Act
+        var model = await Introspect(_schema);
+
+        // Assert
+        var aggregate = model.Schemas.Single(s => s.Name == _schema).Routines.Single(r => r.Name == "group_concat");
+        aggregate.RoutineKind.ShouldBe(RoutineKind.Aggregate);
+        aggregate.Arguments.Value.ShouldBe("text");
+        aggregate.Definition.Value.ShouldContain("SFUNC = ");
+        aggregate.Definition.Value.ShouldContain("concat_pair");
+        aggregate.Definition.Value.ShouldContain("STYPE = text");
     }
 
     // ── Native types ──────────────────────────────────────────────────────────

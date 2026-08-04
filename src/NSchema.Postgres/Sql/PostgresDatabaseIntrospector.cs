@@ -85,6 +85,8 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         var functionComments = await QueryRoutineComments(conn, schemas, FunctionKind, cancellationToken);
         var procedures = await QueryRoutines(conn, schemas, ProcedureKind, cancellationToken);
         var procedureComments = await QueryRoutineComments(conn, schemas, ProcedureKind, cancellationToken);
+        var aggregates = await QueryAggregates(conn, schemas, cancellationToken);
+        var aggregateComments = await QueryRoutineComments(conn, schemas, AggregateKind, cancellationToken);
 
         return Build(
             tables, columns, primaryKeys, foreignKeys, uniqueConstraints, checkConstraints, exclusionConstraints, indexes, triggers,
@@ -92,7 +94,7 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
             schemaGrants, tableGrants, views, viewComments, viewDependencies,
             enums, enumComments, sequences, sequenceComments,
             domains, domainChecks, compositeTypes, compositeFields, nativeTypes,
-            functions, functionComments, procedures, procedureComments,
+            functions, functionComments, procedures, procedureComments, aggregates, aggregateComments,
             extensions
         );
     }
@@ -1290,9 +1292,72 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         return result;
     }
 
-    // pg_proc.prokind discriminators — 'a' (aggregate) and 'w' (window) are not part of the model.
+    // pg_proc.prokind discriminators — 'w' (window) is not part of the model.
     private const char FunctionKind = 'f';
     private const char ProcedureKind = 'p';
+    private const char AggregateKind = 'a';
+
+    private static async Task<List<RoutineRow>> QueryAggregates(NpgsqlConnection conn, string[]? schemas, CancellationToken ct)
+    {
+        var rows = new List<RoutineRow>();
+        await using var cmd = conn.CreateCommand();
+        // pg_get_functiondef refuses aggregates, so the definition is reconstructed from pg_aggregate as the
+        // canonical option tuple, non-default options only, so an import is stable and format-canonical.
+        // regproc renders a function qualified only when it is off the search path, as a dump spells it.
+        cmd.CommandText = """
+            SELECT n.nspname AS schema_name,
+                   p.proname AS aggregate_name,
+                   pg_get_function_arguments(p.oid) AS arguments,
+                   a.aggtransfn::regproc::text AS sfunc,
+                   format_type(a.aggtranstype, NULL) AS stype,
+                   a.agginitval AS initcond,
+                   CASE WHEN a.aggfinalfn <> 0 THEN a.aggfinalfn::regproc::text END AS finalfunc
+            FROM pg_proc p
+            JOIN pg_aggregate a ON a.aggfnoid = p.oid
+            JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE p.prokind = 'a'
+            AND (@schemas::text[] IS NULL OR n.nspname = ANY(@schemas))
+            AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+            AND n.nspname NOT LIKE 'pg\_toast%' ESCAPE '\'
+            AND n.nspname NOT LIKE 'pg\_temp%' ESCAPE '\'
+            AND NOT EXISTS (
+                SELECT 1
+                FROM pg_depend dep
+                WHERE dep.classid = 'pg_proc'::regclass
+                AND dep.objid = p.oid
+                AND dep.deptype = 'e'
+            )
+            ORDER BY n.nspname, p.proname
+            """;
+        AddSchemasParameter(cmd, schemas);
+
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var options = new List<string>
+            {
+                $"SFUNC = {reader.GetString(3)}",
+                $"STYPE = {reader.GetString(4)}",
+            };
+            if (!reader.IsDBNull(5))
+            {
+                options.Add($"INITCOND = '{reader.GetString(5).Replace("'", "''")}'");
+            }
+            if (!reader.IsDBNull(6))
+            {
+                options.Add($"FINALFUNC = {reader.GetString(6)}");
+            }
+
+            rows.Add(new RoutineRow(
+                Schema: reader.GetString(0),
+                Name: reader.GetString(1),
+                Arguments: reader.GetString(2),
+                Definition: $"({string.Join(", ", options)})"
+            ));
+        }
+
+        return rows;
+    }
 
     private static async Task<List<RoutineRow>> QueryRoutines(NpgsqlConnection conn, string[]? schemas, char kind, CancellationToken ct)
     {
@@ -1462,6 +1527,8 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         Dictionary<(string, string), string?> functionComments,
         List<RoutineRow> procedures,
         Dictionary<(string, string), string?> procedureComments,
+        List<RoutineRow> aggregates,
+        Dictionary<(string, string), string?> aggregateComments,
         List<ExtensionRow> extensions
     )
     {
@@ -1504,6 +1571,7 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         var routinesBySchema = functions
             .Select(f => (f.Schema, Routine: BuildRoutine(f, RoutineKind.Function, functionComments)))
             .Concat(procedures.Select(p => (p.Schema, Routine: BuildRoutine(p, RoutineKind.Procedure, procedureComments))))
+            .Concat(aggregates.Select(a => (a.Schema, Routine: BuildRoutine(a, RoutineKind.Aggregate, aggregateComments))))
             .GroupBy(x => x.Schema)
             .ToDictionary(g => g.Key, g => g.Select(x => x.Routine).ToList());
 
