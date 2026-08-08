@@ -1699,7 +1699,9 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
             Name = row.Name,
             Body = row.Definition,
             Comment = viewComments.GetValueOrDefault((row.Schema, row.Name)),
+#pragma warning disable CS0618 // Dependencies moved to the dependency graph in Core 5.6; migrating this read is its own change.
             DependsOn = dependsOn,
+#pragma warning restore CS0618
             IsMaterialized = row.IsMaterialized,
             Indexes = [.. indexes],
         };

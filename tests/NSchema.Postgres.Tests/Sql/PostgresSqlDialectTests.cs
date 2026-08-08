@@ -831,7 +831,9 @@ public sealed class PostgresSqlDialectTests(PostgresContainerFixture fixture) : 
             .Schemas[0].Views.ShouldHaveSingleItem();
         introspected.IsMaterialized.ShouldBeTrue();
         introspected.Body.Value.ShouldContain("sum");
+        #pragma warning disable CS0618 // Asserting the obsolete DependsOn until this read migrates to the dependency graph.
         introspected.DependsOn.ShouldContain(d => d.Name == "sales");
+        #pragma warning restore CS0618
         var index = introspected.Indexes.ShouldHaveSingleItem();
         index.Name.ShouldBe("idx_totals_id");
         index.IsUnique.ShouldBeTrue();

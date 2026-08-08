@@ -14,6 +14,23 @@ internal sealed partial class PostgresSqlDialect
     protected override Result<IReadOnlyList<SqlStatement>> CreateView(CreateView action)
     {
         var view = action.View;
+
+        // A plain view stores no rows, so Postgres has nothing to index. Other engines do index one — that is
+        // what SQL Server's indexed view is — so the project grammar accepts the declaration and the refusal
+        // belongs to the dialect that cannot honour it.
+        if (view is { IsMaterialized: false, Indexes.Count: > 0 })
+        {
+            return Unsupported(action);
+        }
+
+        // Every Postgres view is schema-bound in effect — dependencies are tracked and what a view reads cannot
+        // be dropped or retyped from under it — but there is no clause to write, and nothing to introspect back.
+        // Declaring it would therefore drift on every plan, so it is refused rather than silently honoured.
+        if (view.IsSchemaBound)
+        {
+            return Unsupported(action);
+        }
+
         var address = new ObjectAddress(action.SchemaName, view.Name);
         return Statements([
             new($"CREATE {ViewKind(view.IsMaterialized)} {Qualify(action.SchemaName, view.Name)} AS {view.Body.Value}"),
@@ -26,7 +43,9 @@ internal sealed partial class PostgresSqlDialect
     // than silently dropping dependents. A materialized view has no CREATE OR REPLACE form, so the core
     // plans its body change as drop + recreate and a ReplaceView is never materialized.
     protected override Result<IReadOnlyList<SqlStatement>> ReplaceView(ReplaceView action) =>
-        Statement($"CREATE OR REPLACE VIEW {Qualify(action.SchemaName, action.View.Name)} AS {action.View.Body.Value}");
+        action.View.IsSchemaBound
+            ? Unsupported(action)
+            : Statement($"CREATE OR REPLACE VIEW {Qualify(action.SchemaName, action.View.Name)} AS {action.View.Body.Value}");
 
     protected override Result<IReadOnlyList<SqlStatement>> DropView(DropView action) =>
         Statement($"DROP {ViewKind(action.IsMaterialized)} {Qualify(action.View)}");

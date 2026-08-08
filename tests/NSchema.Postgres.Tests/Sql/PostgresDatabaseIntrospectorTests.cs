@@ -749,7 +749,9 @@ public sealed class PostgresDatabaseIntrospectorTests(PostgresContainerFixture f
             .Schemas[0].Views.ShouldHaveSingleItem();
 
         // Assert
+        #pragma warning disable CS0618 // Asserting the obsolete DependsOn until this read migrates to the dependency graph.
         view.DependsOn.ShouldHaveSingleItem().ShouldBe(new ObjectAddress(_schema, "users"));
+        #pragma warning restore CS0618
     }
 
     [Fact]
@@ -767,7 +769,9 @@ public sealed class PostgresDatabaseIntrospectorTests(PostgresContainerFixture f
             .Schemas[0].Views.Single(v => v.Name == "active_ids");
 
         // Assert
+        #pragma warning disable CS0618 // Asserting the obsolete DependsOn until this read migrates to the dependency graph.
         derived.DependsOn.ShouldHaveSingleItem().ShouldBe(new ObjectAddress(_schema, "active_users"));
+        #pragma warning restore CS0618
     }
 
     // ── Enums ─────────────────────────────────────────────────────────────────
