@@ -24,6 +24,7 @@ As a consequence, breaking changes that are specific to this provider (rather th
 ### Fixed
 
 - **`ON DELETE RESTRICT` and `ON UPDATE RESTRICT` are no longer read as `NO ACTION`.** Postgres records `RESTRICT` as `confdeltype = 'r'`, which introspection mapped onto `NO ACTION` because the model had nowhere else to put it.
+- **Table partitioning is reported at import.** NSchema does not model it, so a partitioned table arrives as a plain one and each partition as an unrelated table, but it is now said out loud rather than passed over.
 
 ## [5.5.0] - 2026-08-09
 
