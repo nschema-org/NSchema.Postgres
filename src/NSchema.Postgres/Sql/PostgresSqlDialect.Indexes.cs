@@ -10,8 +10,12 @@ internal sealed partial class PostgresSqlDialect
 
     // ── Indexes ───────────────────────────────────────────────────────────────
 
+    // Postgres indexes an xml column as an opaque value; it has no shredded node table to build over, so the
+    // XML index forms have no counterpart here and are reported rather than flattened to an ordinary index.
     protected override Result<IReadOnlyList<SqlStatement>> CreateIndex(CreateIndex action) =>
-        Statement(IndexSql(action.Table, action.Index));
+        action.Index.Xml is not null
+            ? Unsupported(action)
+            : Statement(IndexSql(action.Table, action.Index));
 
     private string IndexSql(ObjectAddress owner, TableIndex index)
     {
