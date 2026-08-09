@@ -1945,6 +1945,8 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
             ? new IdentityOptions(row.IdentityStart, row.IdentityMinValue, row.IdentityIncrement)
             : null,
         GeneratedExpression = row.GeneratedExpression,
+        // Postgres has only stored generated columns, so one that exists is stored by construction.
+        IsStored = row.GeneratedExpression is not null,
         Comment = columnComments.GetValueOrDefault((row.TableSchema, row.TableName, row.ColumnName)),
     };
 

@@ -12,6 +12,11 @@ As a consequence, breaking changes that are specific to this provider (rather th
 
 ## [Unreleased]
 
+### Added
+
+- **`SupportsRestrict`** is declared, so `RESTRICT` is rendered rather than dropped.
+- **Generated columns are reported as stored**, which is the only kind Postgres has. A project declaring a virtual one now gets a warning that it will be stored, rather than that difference passing unremarked.
+
 ### Changed
 
 - **The build now writes the full dependency closure beside the assembly** (`CopyLocalLockFileAssemblies`), so a `dotnet build` of this project can be loaded directly by `PLUGIN ( path = '...' )` without being packed first. Package contents are unchanged.
@@ -19,10 +24,6 @@ As a consequence, breaking changes that are specific to this provider (rather th
 ### Fixed
 
 - **`ON DELETE RESTRICT` and `ON UPDATE RESTRICT` are no longer read as `NO ACTION`.** Postgres records `RESTRICT` as `confdeltype = 'r'`, which introspection mapped onto `NO ACTION` because the model had nowhere else to put it.
-
-### Added
-
-- **`SupportsRestrict`** is declared, so `RESTRICT` is rendered rather than dropped.
 
 ## [5.5.0] - 2026-08-09
 
