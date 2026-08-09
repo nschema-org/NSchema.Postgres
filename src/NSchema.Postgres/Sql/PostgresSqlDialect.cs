@@ -6,6 +6,13 @@ namespace NSchema.Postgres.Sql;
 
 internal sealed partial class PostgresSqlDialect : SqlDialect
 {
+
+    /// <summary>
+    /// Postgres has RESTRICT, and treats it as distinct from NO ACTION: the check runs immediately rather than at
+    /// the end of the statement, so a deferred constraint behaves differently under the two.
+    /// </summary>
+    public override bool SupportsRestrict => true;
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private Result<IReadOnlyList<SqlStatement>> Comment(string target, string? comment) =>

@@ -2024,7 +2024,8 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         'c' => ReferentialAction.Cascade,
         'n' => ReferentialAction.SetNull,
         'd' => ReferentialAction.SetDefault,
-        _ => ReferentialAction.NoAction, // 'a' = NO ACTION, 'r' = RESTRICT
+        'r' => ReferentialAction.Restrict,
+        _ => ReferentialAction.NoAction, // 'a' = NO ACTION
     };
 
     // An address names the schema it sits in: a schema address is its own, an object and a member each carry
