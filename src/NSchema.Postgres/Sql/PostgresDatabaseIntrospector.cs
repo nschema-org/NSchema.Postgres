@@ -42,7 +42,7 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         }
     }
 
-    private async ValueTask<Database> Read(PlanningScope scope, CancellationToken cancellationToken)
+    private async ValueTask<Result<Database>> Read(PlanningScope scope, CancellationToken cancellationToken)
     {
         await using var conn = await dataSource.OpenConnectionAsync(cancellationToken);
 
@@ -88,7 +88,12 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         var aggregates = await QueryAggregates(conn, schemas, cancellationToken);
         var aggregateComments = await QueryRoutineComments(conn, schemas, AggregateKind, cancellationToken);
 
-        return Build(
+        // What the model cannot hold is reported rather than passed over. Partitioning survives none of this read:
+        // the parent arrives as a plain table and each partition as an unrelated one, so a schema that round-trips
+        // through NSchema comes back looking the same and no longer routing a single row the way it used to.
+        var partitioning = await QueryPartitioning(conn, schemas, cancellationToken);
+
+        var database = Build(
             tables, columns, primaryKeys, foreignKeys, uniqueConstraints, checkConstraints, exclusionConstraints, indexes, triggers,
             schemaComments, tableComments, columnComments, indexComments, constraintComments,
             schemaGrants, tableGrants, views, viewComments, viewDependencies,
@@ -97,6 +102,46 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
             functions, functionComments, procedures, procedureComments, aggregates, aggregateComments,
             extensions
         );
+
+        return partitioning.Count == 0
+            ? Result.Success(database)
+            : Result.Success(database, Diagnostic.Warning(Source, "partitioning-not-modelled",
+                $"NSchema does not model table partitioning, so it is not carried into the project: {string.Join(", ", partitioning):text}. "
+                + "Applying this project elsewhere would create ordinary tables, and rows written to the parent would stay in it rather than routing to a partition."));
+    }
+
+    // Deliberately not information_schema, which reports a partitioned parent and each of its partitions as plain
+    // base tables and so cannot see the relationship at all.
+    private static async Task<List<string>> QueryPartitioning(NpgsqlConnection conn, string[]? schemas, CancellationToken ct)
+    {
+        var found = new List<string>();
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT n.nspname || '.' || c.relname || ' (partitioned)'
+            FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.relkind = 'p'
+              AND (@schemas::text[] IS NULL OR n.nspname = ANY(@schemas))
+              AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+            UNION ALL
+            SELECT n.nspname || '.' || c.relname || ' (partition of ' || p.relname || ')'
+            FROM pg_inherits i
+            JOIN pg_class c ON c.oid = i.inhrelid
+            JOIN pg_class p ON p.oid = i.inhparent
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.relispartition
+              AND (@schemas::text[] IS NULL OR n.nspname = ANY(@schemas))
+              AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+            ORDER BY 1
+            """;
+        AddSchemasParameter(cmd, schemas);
+
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            found.Add(reader.GetString(0));
+        }
+
+        return found;
     }
 
     // ── Queries ───────────────────────────────────────────────────────────────
@@ -1945,6 +1990,8 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
             ? new IdentityOptions(row.IdentityStart, row.IdentityMinValue, row.IdentityIncrement)
             : null,
         GeneratedExpression = row.GeneratedExpression,
+        // Postgres has only stored generated columns, so one that exists is stored by construction.
+        IsStored = row.GeneratedExpression is not null,
         Comment = columnComments.GetValueOrDefault((row.TableSchema, row.TableName, row.ColumnName)),
     };
 
@@ -2024,7 +2071,8 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         'c' => ReferentialAction.Cascade,
         'n' => ReferentialAction.SetNull,
         'd' => ReferentialAction.SetDefault,
-        _ => ReferentialAction.NoAction, // 'a' = NO ACTION, 'r' = RESTRICT
+        'r' => ReferentialAction.Restrict,
+        _ => ReferentialAction.NoAction, // 'a' = NO ACTION
     };
 
     // An address names the schema it sits in: a schema address is its own, an object and a member each carry
