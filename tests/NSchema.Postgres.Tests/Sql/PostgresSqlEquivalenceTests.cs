@@ -93,6 +93,33 @@ public sealed class PostgresSqlEquivalenceTests
     public void Types_BuiltIn_MatchesItself()
         => AssertTypesEqual(SqlType.VarChar(255), SqlType.VarChar(255));
 
+    [Theory]
+    [MemberData(nameof(RenderedAlike))]
+    public void Types_CanonicalNamesTheDialectRendersAlike_Match(SqlType canonical, SqlType native)
+        => AssertTypesEqual(canonical, native);
+
+    /// <summary>
+    /// The canonical spellings <c>ToPostgresType</c> renders onto a type Postgres has, paired with that type.
+    /// The engine's own vocabulary only ever names the right-hand side.
+    /// </summary>
+    public static TheoryData<SqlType, SqlType> RenderedAlike() => new()
+    {
+        { SqlType.TinyInt, SqlType.SmallInt },
+        { SqlType.NChar(4), SqlType.Char(4) },
+        { SqlType.NVarChar(64), SqlType.VarChar(64) },
+        { SqlType.NVarChar(), SqlType.VarChar() },
+        { SqlType.Binary(16), SqlType.VarBinary() },
+    };
+
+    [Fact]
+    public void Types_VarBinaryLength_IsNotSignificant()
+        // bytea has no length to carry, so declaring one cannot be a difference the plan could act on.
+        => AssertTypesEqual(SqlType.VarBinary(32), SqlType.VarBinary());
+
+    [Fact]
+    public void Types_LengthOnATypeThatCarriesOne_IsStillSignificant()
+        => _sut.Types.Equals(SqlType.VarChar(32), SqlType.VarChar(64)).ShouldBeFalse();
+
     private void AssertDefaultsEqual(string x, string y)
     {
         // Equivalence is symmetric — neither side's spelling is the sanctioned one — and equal values hash equal.

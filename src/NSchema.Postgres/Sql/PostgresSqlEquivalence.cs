@@ -103,7 +103,32 @@ public sealed class PostgresSqlEquivalence : SqlEquivalence
 
         public int GetHashCode(SqlType obj) => Fold(obj)!.GetHashCode();
 
-        private static SqlType? Fold(SqlType? type) =>
-            type?.Schema?.Value is "public" or "pg_catalog" ? type with { Schema = null } : type;
+        private static SqlType? Fold(SqlType? type)
+        {
+            if (type is null)
+            {
+                return null;
+            }
+
+            // The canonical names the dialect renders onto a type Postgres already has. Without this the engine's
+            // vocabulary — read from its own catalog, so it never contains these — cannot resolve a reference the
+            // dialect renders perfectly well, and a portable schema is refused rather than applied.
+            var folded = type.Name.Value switch
+            {
+                "tinyint" => type with { Name = new SqlIdentifier("smallint") },
+                "nchar" => type with { Name = new SqlIdentifier("char") },
+                "nvarchar" => type with { Name = new SqlIdentifier("varchar") },
+                "binary" => type with { Name = new SqlIdentifier("varbinary") },
+                _ => type,
+            };
+
+            // bytea carries no length, so a declared one is never read back and must not read as a difference.
+            if (folded is { Name.Value: "varbinary", Length: not null })
+            {
+                folded = folded with { Length = null };
+            }
+
+            return folded.Schema?.Value is "public" or "pg_catalog" ? folded with { Schema = null } : folded;
+        }
     }
 }
