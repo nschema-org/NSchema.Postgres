@@ -193,6 +193,44 @@ public sealed class PostgresDatabaseIntrospectorTests(PostgresContainerFixture f
     }
 
     [Fact]
+    public async Task GetDatabase_IdentityDeclaringNoOptions_ReportsNoneBack()
+    {
+        // Arrange — the identity's own sequence records a start and a minimum whether or not either was declared,
+        // so reporting them verbatim makes a column that asked for nothing differ from itself on every deploy.
+        await Exec($"""
+            CREATE TABLE "{_schema}".users (
+                id INTEGER GENERATED ALWAYS AS IDENTITY
+            )
+            """);
+
+        // Act
+        var idCol = (await Introspect(_schema))
+            .Schemas[0].Tables[0].Columns.Single(c => c.Name == "id");
+
+        // Assert
+        idCol.IsIdentity.ShouldBeTrue();
+        idCol.IdentityOptions.ShouldNotBeNull().ShouldBe(new IdentityOptions(null, null, null));
+    }
+
+    [Fact]
+    public async Task GetDatabase_IdentityDeclaringAMinimum_KeepsIt()
+    {
+        // Arrange — the start follows the declared minimum, so only the minimum survives the fold.
+        await Exec($"""
+            CREATE TABLE "{_schema}".users (
+                id INTEGER GENERATED ALWAYS AS IDENTITY (MINVALUE 50)
+            )
+            """);
+
+        // Act
+        var idCol = (await Introspect(_schema))
+            .Schemas[0].Tables[0].Columns.Single(c => c.Name == "id");
+
+        // Assert
+        idCol.IdentityOptions.ShouldNotBeNull().ShouldBe(new IdentityOptions(null, 50, null));
+    }
+
+    [Fact]
     public async Task GetDatabase_ColumnDefault_CapturesExpression()
     {
         // Arrange
@@ -1128,6 +1166,39 @@ public sealed class PostgresDatabaseIntrospectorTests(PostgresContainerFixture f
         var citext = schema.Extensions.Single(e => e.Name == "citext");
         citext.Version.ShouldNotBeNull();
         schema.Extensions.ShouldNotContain(e => e.Name == "plpgsql");
+    }
+
+    [Fact]
+    public async Task GetDatabase_ExtensionsShippedDescription_IsNotReportedAsAComment()
+    {
+        // Arrange — CREATE EXTENSION records the control file's description as a comment on the extension, so an
+        // extension nobody has documented still has one and every plan asked to remove it.
+
+        // Act
+        var citext = (await Introspect(_schema)).Extensions.Single(e => e.Name == "citext");
+
+        // Assert
+        citext.Comment.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetDatabase_ExtensionCommentedByHand_IsReported()
+    {
+        // Arrange — only the shipped description is folded away; documentation the project wrote is still its own.
+        await Exec("COMMENT ON EXTENSION citext IS 'ours, not theirs'");
+        try
+        {
+            // Act
+            var citext = (await Introspect(_schema)).Extensions.Single(e => e.Name == "citext");
+
+            // Assert
+            citext.Comment.ShouldBe("ours, not theirs");
+        }
+        finally
+        {
+            // The extension is database-wide and the fixture is shared, so the shipped description goes back.
+            await Exec("COMMENT ON EXTENSION citext IS 'data type for case-insensitive character strings'");
+        }
     }
 
     // ── Same table name across schemas ────────────────────────────────────────

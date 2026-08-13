@@ -2,6 +2,7 @@ using System.Globalization;
 using NSchema.Diff.Plugins;
 using NSchema.Model;
 using NSchema.Model.Columns;
+using NSchema.Model.Sequences;
 
 namespace NSchema.Postgres.Sql;
 
@@ -24,6 +25,74 @@ public sealed class PostgresSqlEquivalence : SqlEquivalence
     /// a type in any other schema keeps it.
     /// </remarks>
     public override IEqualityComparer<SqlType> Types { get; } = new TypeEquality();
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <c>pg_sequence</c> holds a row of concrete values whatever was declared, so every option the engine would
+    /// have chosen anyway folds back to <see langword="null"/>: <c>bigint</c>, <c>INCREMENT BY 1</c>,
+    /// <c>CACHE 1</c>, the bound at the ascending or descending end of the type, and the start that follows from
+    /// the effective bound — <c>CREATE SEQUENCE q MINVALUE 5</c> starts at 5, not at 1.
+    /// </remarks>
+    public override SequenceOptions WithDefaults(SequenceOptions options) => FoldOptions(options);
+
+    /// <inheritdoc cref="WithDefaults(SequenceOptions)"/>
+    /// <remarks>Static so introspection folds a catalog row through the same rules the comparison uses.</remarks>
+    internal static SequenceOptions FoldOptions(SequenceOptions options)
+    {
+        var bounds = Bounds(options.DataType, options.IncrementBy);
+        var start = options.IncrementBy is null or > 0
+            ? options.MinValue ?? bounds.Min
+            : options.MaxValue ?? bounds.Max;
+
+        return new SequenceOptions(
+            DataType: IsBigInt(options.DataType) ? null : options.DataType,
+            StartWith: options.StartWith == start ? null : options.StartWith,
+            IncrementBy: options.IncrementBy == 1 ? null : options.IncrementBy,
+            MinValue: options.MinValue == bounds.Min ? null : options.MinValue,
+            MaxValue: options.MaxValue == bounds.Max ? null : options.MaxValue,
+            Cache: options.Cache == 1 ? null : options.Cache,
+            Cycle: options.Cycle);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// An identity is a sequence Postgres owns, and <c>pg_sequence</c> reports its minimum and start whether or
+    /// not either was declared — so a column that asked only to be an identity reads back carrying both, and
+    /// differs from itself on every deploy until they are folded away.
+    /// </remarks>
+    public override IdentityOptions WithDefaults(IdentityOptions options, SqlType columnType) => FoldOptions(options, columnType);
+
+    /// <inheritdoc cref="WithDefaults(IdentityOptions, SqlType)"/>
+    /// <remarks>Static so introspection folds a catalog row through the same rules the comparison uses.</remarks>
+    internal static IdentityOptions FoldOptions(IdentityOptions options, SqlType columnType)
+    {
+        var bounds = Bounds(columnType, options.IncrementBy);
+        var start = options.IncrementBy is null or > 0 ? options.MinValue ?? bounds.Min : bounds.Max;
+
+        return new IdentityOptions(
+            StartWith: options.StartWith == start ? null : options.StartWith,
+            MinValue: options.MinValue == bounds.Min ? null : options.MinValue,
+            IncrementBy: options.IncrementBy == 1 ? null : options.IncrementBy,
+            NotForReplication: options.NotForReplication);
+    }
+
+    // The bounds a sequence of this type takes when neither end is declared: an ascending one runs from 1 to the
+    // type's maximum, a descending one from the type's minimum to -1.
+    private static (long Min, long Max) Bounds(SqlType? dataType, long? increment)
+    {
+        var (typeMin, typeMax) = TypeRange(dataType);
+        return increment is null or > 0 ? (1L, typeMax) : (typeMin, -1L);
+    }
+
+    // Postgres has no tinyint; the dialect renders one as smallint, so it carries smallint's range.
+    private static (long Min, long Max) TypeRange(SqlType? dataType) => dataType?.Name.Value switch
+    {
+        "tinyint" or "smallint" => (short.MinValue, short.MaxValue),
+        "int" => (int.MinValue, int.MaxValue),
+        _ => (long.MinValue, long.MaxValue),
+    };
+
+    private static bool IsBigInt(SqlType? dataType) => dataType is null || dataType.Name.Value == "bigint";
 
     /// <summary>
     /// Folds the cast Postgres adds when it stores a literal default: the whole expression must be a single
@@ -103,7 +172,32 @@ public sealed class PostgresSqlEquivalence : SqlEquivalence
 
         public int GetHashCode(SqlType obj) => Fold(obj)!.GetHashCode();
 
-        private static SqlType? Fold(SqlType? type) =>
-            type?.Schema?.Value is "public" or "pg_catalog" ? type with { Schema = null } : type;
+        private static SqlType? Fold(SqlType? type)
+        {
+            if (type is null)
+            {
+                return null;
+            }
+
+            // The canonical names the dialect renders onto a type Postgres already has. Without this the engine's
+            // vocabulary — read from its own catalog, so it never contains these — cannot resolve a reference the
+            // dialect renders perfectly well, and a portable schema is refused rather than applied.
+            var folded = type.Name.Value switch
+            {
+                "tinyint" => type with { Name = new SqlIdentifier("smallint") },
+                "nchar" => type with { Name = new SqlIdentifier("char") },
+                "nvarchar" => type with { Name = new SqlIdentifier("varchar") },
+                "binary" => type with { Name = new SqlIdentifier("varbinary") },
+                _ => type,
+            };
+
+            // bytea carries no length, so a declared one is never read back and must not read as a difference.
+            if (folded is { Name.Value: "varbinary", Length: not null })
+            {
+                folded = folded with { Length = null };
+            }
+
+            return folded.Schema?.Value is "public" or "pg_catalog" ? folded with { Schema = null } : folded;
+        }
     }
 }

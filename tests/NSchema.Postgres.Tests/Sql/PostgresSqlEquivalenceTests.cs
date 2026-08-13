@@ -1,13 +1,15 @@
 using NSchema.Model;
 using NSchema.Model.Columns;
+using NSchema.Model.Sequences;
 using NSchema.Postgres.Sql;
 
 namespace NSchema.Postgres.Tests.Sql;
 
 /// <summary>
 /// Pins <see cref="PostgresSqlEquivalence"/>: the spellings Postgres and a project may legitimately disagree
-/// on — a stored literal's cast, a <c>public</c>/<c>pg_catalog</c> type qualifier — compare equal in either
-/// direction, while real differences survive. Pure unit tests — no Docker.
+/// on — a stored literal's cast, a <c>public</c>/<c>pg_catalog</c> type qualifier, a sequence option declared
+/// with the value the engine would have chosen anyway — compare equal in either direction, while real differences
+/// survive. Pure unit tests — no Docker.
 /// </summary>
 public sealed class PostgresSqlEquivalenceTests
 {
@@ -92,6 +94,95 @@ public sealed class PostgresSqlEquivalenceTests
     [Fact]
     public void Types_BuiltIn_MatchesItself()
         => AssertTypesEqual(SqlType.VarChar(255), SqlType.VarChar(255));
+
+    [Theory]
+    [MemberData(nameof(RenderedAlike))]
+    public void Types_CanonicalNamesTheDialectRendersAlike_Match(SqlType canonical, SqlType native)
+        => AssertTypesEqual(canonical, native);
+
+    /// <summary>
+    /// The canonical spellings <c>ToPostgresType</c> renders onto a type Postgres has, paired with that type.
+    /// The engine's own vocabulary only ever names the right-hand side.
+    /// </summary>
+    public static TheoryData<SqlType, SqlType> RenderedAlike() => new()
+    {
+        { SqlType.TinyInt, SqlType.SmallInt },
+        { SqlType.NChar(4), SqlType.Char(4) },
+        { SqlType.NVarChar(64), SqlType.VarChar(64) },
+        { SqlType.NVarChar(), SqlType.VarChar() },
+        { SqlType.Binary(16), SqlType.VarBinary() },
+    };
+
+    [Fact]
+    public void Types_VarBinaryLength_IsNotSignificant()
+        // bytea has no length to carry, so declaring one cannot be a difference the plan could act on.
+        => AssertTypesEqual(SqlType.VarBinary(32), SqlType.VarBinary());
+
+    [Fact]
+    public void Types_LengthOnATypeThatCarriesOne_IsStillSignificant()
+        => _sut.Types.Equals(SqlType.VarChar(32), SqlType.VarChar(64)).ShouldBeFalse();
+
+    // ── Sequence options ──────────────────────────────────────────────────────
+
+    [Fact]
+    public void WithDefaults_SequenceDeclaringNothing_IsUnchanged()
+        => _sut.WithDefaults(new SequenceOptions()).ShouldBe(new SequenceOptions());
+
+    [Fact]
+    public void WithDefaults_SequenceDeclaringTheEngineDefaults_FoldsToNothingDeclared()
+        // The whole point: a project that says out loud what Postgres would have chosen anyway has to compare equal
+        // to the catalog row, which cannot report which of the two happened.
+        => _sut.WithDefaults(new SequenceOptions(
+                DataType: SqlType.BigInt, StartWith: 1, IncrementBy: 1, MinValue: 1, MaxValue: long.MaxValue, Cache: 1))
+            .ShouldBe(new SequenceOptions());
+
+    [Fact]
+    public void WithDefaults_SequenceDeclaringTheDescendingDefaults_KeepsOnlyTheIncrement()
+        => _sut.WithDefaults(new SequenceOptions(StartWith: -1, IncrementBy: -1, MinValue: long.MinValue, MaxValue: -1))
+            .ShouldBe(new SequenceOptions(IncrementBy: -1));
+
+    [Fact]
+    public void WithDefaults_SequenceStartFollowingADeclaredMinimum_FoldsTheStartOnly()
+        // CREATE SEQUENCE q MINVALUE 5 starts at 5, so a declared START 5 is the default while the minimum is not.
+        => _sut.WithDefaults(new SequenceOptions(StartWith: 5, MinValue: 5)).ShouldBe(new SequenceOptions(MinValue: 5));
+
+    [Fact]
+    public void WithDefaults_SequenceOptionsThatDifferFromTheDefaults_AreKept()
+        => _sut.WithDefaults(new SequenceOptions(SqlType.Int, StartWith: 20, IncrementBy: 5, MinValue: 10, MaxValue: 1000, Cache: 10, Cycle: true))
+            .ShouldBe(new SequenceOptions(SqlType.Int, StartWith: 20, IncrementBy: 5, MinValue: 10, MaxValue: 1000, Cache: 10, Cycle: true));
+
+    [Fact]
+    public void WithDefaults_SequenceBoundsFollowTheDeclaredType()
+        // int's maximum is the default ceiling for an integer sequence and a real one for a bigint sequence.
+        => _sut.WithDefaults(new SequenceOptions(SqlType.Int, MaxValue: int.MaxValue)).ShouldBe(new SequenceOptions(SqlType.Int));
+
+    [Fact]
+    public void WithDefaults_IntegerMaximumOnABigintSequence_IsKept()
+        => _sut.WithDefaults(new SequenceOptions(MaxValue: int.MaxValue)).ShouldBe(new SequenceOptions(MaxValue: int.MaxValue));
+
+    // ── Identity options ──────────────────────────────────────────────────────
+
+    [Fact]
+    public void WithDefaults_IdentityDeclaringTheEngineDefaults_FoldsToNothingDeclared()
+        // pg_sequence reports a start and a minimum for every identity, asked for or not.
+        => _sut.WithDefaults(new IdentityOptions(StartWith: 1, MinValue: 1, IncrementBy: 1), SqlType.BigInt)
+            .ShouldBe(new IdentityOptions(null, null, null));
+
+    [Fact]
+    public void WithDefaults_IdentityStartFollowingADeclaredMinimum_FoldsTheStartOnly()
+        => _sut.WithDefaults(new IdentityOptions(StartWith: 5, MinValue: 5, IncrementBy: null), SqlType.Int)
+            .ShouldBe(new IdentityOptions(null, 5, null));
+
+    [Fact]
+    public void WithDefaults_IdentityOptionsThatDifferFromTheDefaults_AreKept()
+        => _sut.WithDefaults(new IdentityOptions(StartWith: 100, MinValue: 10, IncrementBy: 5), SqlType.Int)
+            .ShouldBe(new IdentityOptions(100, 10, 5));
+
+    [Fact]
+    public void WithDefaults_IdentityKeepsNotForReplication()
+        // Not an option Postgres has a default for, and it has to survive the trip.
+        => _sut.WithDefaults(new IdentityOptions(1, 1, 1, NotForReplication: true), SqlType.BigInt)
+            .NotForReplication.ShouldBeTrue();
 
     private void AssertDefaultsEqual(string x, string y)
     {

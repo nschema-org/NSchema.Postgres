@@ -10,6 +10,17 @@ This package uses **lockstep major versioning** with the core NSchema package: `
 
 As a consequence, breaking changes that are specific to this provider (rather than the core API) are signalled by a **minor version bump** rather than a major one, and called out explicitly in this changelog.
 
+## [5.6.1] - 2026-08-13
+
+### Fixed
+
+- **The canonical types Postgres renders are no longer refused.** `tinyint`, `nchar`, `nvarchar` and `binary` are written as `smallint`, `character`, `character varying` and `bytea`, but the engine's vocabulary is read from its own catalog and so never names them, leaving a plan that rendered the column correctly and then refused it as an unresolved type. They now compare equal to the type they are rendered as.
+- **A `varbinary` length no longer drifts.** `bytea` carries none, so a declared one was never read back and every plan asked to change the column again.
+- **A sequence option declared with the default value now settles.**
+- **An identity column reports no minimum where none was declared.**
+- **An identity option reset to the engine's default is now written.**
+- **Changing an identity's increment or minimum no longer restarts its counter.** `RESTART` was appended to every identity alter. Only a start that actually moved carries a `RESTART` now, and that case is reported as a data hazard.
+
 ## [5.6.0] - 2026-08-11
 
 ### Added

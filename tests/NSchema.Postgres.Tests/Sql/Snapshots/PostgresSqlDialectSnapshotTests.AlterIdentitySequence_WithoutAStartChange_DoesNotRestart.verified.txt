@@ -1,0 +1,6 @@
+﻿[
+  {
+    Sql: ALTER TABLE "public"."users" ALTER COLUMN "id" SET INCREMENT BY 2,
+    RunOutsideTransaction: false
+  }
+]
