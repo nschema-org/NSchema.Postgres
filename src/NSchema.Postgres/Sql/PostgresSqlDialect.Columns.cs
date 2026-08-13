@@ -1,3 +1,4 @@
+using NSchema.Model.Columns;
 using NSchema.Plan.Domain;
 using NSchema.Plan.Domain.Columns;
 
@@ -21,28 +22,47 @@ internal sealed partial class PostgresSqlDialect
             _ => Statements(),
         };
 
+    // One clause per option that differs, as AlterSequence does: an option going back to null is the engine's own
+    // default asked for explicitly, so the next introspection folds it away again and no residual drift is left.
     protected override Result<IReadOnlyList<SqlStatement>> AlterIdentitySequence(AlterIdentitySequence action)
     {
-        var opts = action.NewOptions;
+        var (old, @new) = (action.OldOptions, action.NewOptions);
         var parts = new List<string>();
-        if (opts?.MinValue is { } min)
+        if (old?.MinValue != @new?.MinValue)
         {
-            parts.Add($"SET MINVALUE {min}");
+            parts.Add(@new?.MinValue is { } min ? $"SET MINVALUE {min}" : "SET NO MINVALUE");
         }
 
-        if (opts?.StartWith is { } start)
+        // Only a start that actually moved restarts the counter. `SET START` records where a restart begins and
+        // does not move the current value, so the RESTART is what makes the new start take effect — and it is
+        // also what reissues values the table already holds, which is why nothing else may drag it along.
+        var startChanged = old?.StartWith != @new?.StartWith;
+        if (startChanged)
         {
-            parts.Add($"SET START {start}");
+            // There is no NO START form; a reset asks for the start a freshly declared identity would have — its
+            // effective minimum ascending, its maximum descending — which introspection then folds back to null.
+            parts.Add($"SET START {@new?.StartWith ?? DefaultIdentityStart(@new)}");
         }
 
-        if (opts?.IncrementBy is { } increment)
+        if (old?.IncrementBy != @new?.IncrementBy)
         {
-            parts.Add($"SET INCREMENT BY {increment}");
+            parts.Add($"SET INCREMENT BY {@new?.IncrementBy ?? 1}");
         }
 
-        parts.Add("RESTART");
+        if (startChanged)
+        {
+            parts.Add("RESTART");
+        }
+
+        if (parts.Count == 0)
+        {
+            return Statements();
+        }
         return Statement($"ALTER TABLE {Qualify(action.Column.Owner)} ALTER COLUMN {Quote(action.Column.Member)} {string.Join(" ", parts)}");
     }
+
+    private static long DefaultIdentityStart(IdentityOptions? options) =>
+        (options?.IncrementBy ?? 1) > 0 ? options?.MinValue ?? 1 : -1;
 
     // Changing a column's generation expression in place: PG 17+ replaces it with SET EXPRESSION, and a generated
     // column is converted back to a plain one with DROP EXPRESSION (data is kept). PostgreSQL has no in-place way

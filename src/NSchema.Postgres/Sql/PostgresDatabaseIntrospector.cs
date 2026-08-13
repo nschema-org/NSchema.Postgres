@@ -733,11 +733,22 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         await using var cmd = conn.CreateCommand();
         // Extensions are database-global (not schema-scoped), so they are not filtered by the schema list. plpgsql
         // is the always-installed procedural language and never part of a declared schema, so it is excluded.
+        //
+        // CREATE EXTENSION records the description from the extension's control file as a comment on the extension,
+        // so obj_description reports one for an extension nobody has documented. The control file is still readable
+        // through pg_available_extension_versions, so a comment matching it is the one the extension shipped with
+        // and is reported as no comment at all — otherwise every plan asks to remove documentation the project
+        // never wrote. A project that declares that exact text is asking for what is already there; it is left to
+        // say nothing instead. Where the extension's files are gone from disk the join finds nothing and the
+        // description stands, which is the safe way round: a comment kept is drift, a comment dropped is data lost.
         cmd.CommandText = """
             SELECT e.extname AS name,
                    e.extversion AS version,
-                   obj_description(e.oid, 'pg_extension') AS comment
+                   obj_description(e.oid, 'pg_extension') AS comment,
+                   av.comment AS shipped_comment
             FROM pg_extension e
+            LEFT JOIN pg_available_extension_versions av
+                   ON av.name = e.extname AND av.version = e.extversion
             WHERE e.extname <> 'plpgsql'
             ORDER BY e.extname
             """;
@@ -745,10 +756,12 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct))
         {
+            var comment = reader.IsDBNull(2) ? null : reader.GetString(2);
+            var shipped = reader.IsDBNull(3) ? null : reader.GetString(3);
             rows.Add(new ExtensionRow(
                 Name: reader.GetString(0),
                 Version: reader.IsDBNull(1) ? null : reader.GetString(1),
-                Comment: reader.IsDBNull(2) ? null : reader.GetString(2)
+                Comment: comment == shipped ? null : comment
             ));
         }
 
@@ -1678,35 +1691,18 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         return new Database { Schemas = dbSchemas, Extensions = dbExtensions };
     }
 
-    // Postgres engine defaults are folded to null so a bare "CREATE SEQUENCE" round-trips to an all-null
-    // SequenceOptions and the core's plain record equality sees no drift. Documented trade-off: a desired schema
-    // that *explicitly* declares an engine default (e.g. START 1 on an ascending sequence) shows drift against the
-    // normalized null; the fix is to omit the option.
-    internal static SequenceOptions NormalizeSequenceOptions(SequenceRow row)
-    {
-        var ascending = row.Increment > 0;
-        var (typeMin, typeMax) = row.DataType switch
-        {
-            "smallint" => ((long)short.MinValue, (long)short.MaxValue),
-            "integer" => ((long)int.MinValue, (long)int.MaxValue),
-            _ => (long.MinValue, long.MaxValue), // bigint
-        };
-
-        var defaultMin = ascending ? 1L : typeMin;
-        var defaultMax = ascending ? typeMax : -1L;
-        // The default start is the sequence's *effective* minvalue (ascending) / maxvalue (descending), not the
-        // default min/max — CREATE SEQUENCE q MINVALUE 5 starts at 5.
-        var defaultStart = ascending ? row.MinValue : row.MaxValue;
-
-        return new SequenceOptions(
-            DataType: row.DataType == "bigint" ? null : SqlType.Parse(row.DataType),
-            StartWith: row.Start == defaultStart ? null : row.Start,
-            IncrementBy: row.Increment == 1 ? null : row.Increment,
-            MinValue: row.MinValue == defaultMin ? null : row.MinValue,
-            MaxValue: row.MaxValue == defaultMax ? null : row.MaxValue,
-            Cache: row.Cache == 1 ? null : row.Cache,
-            Cycle: row.Cycle);
-    }
+    // pg_sequence holds a concrete value for every option whatever was declared, so the row is folded onto the
+    // engine's defaults — through the same rules the comparison folds a desired schema with, so the two meet — and
+    // an imported project says only what was asked for.
+    internal static SequenceOptions NormalizeSequenceOptions(SequenceRow row) =>
+        PostgresSqlEquivalence.FoldOptions(new SequenceOptions(
+            DataType: SqlType.Parse(row.DataType),
+            StartWith: row.Start,
+            IncrementBy: row.Increment,
+            MinValue: row.MinValue,
+            MaxValue: row.MaxValue,
+            Cache: row.Cache,
+            Cycle: row.Cycle));
 
     private static Routine BuildRoutine(RoutineRow row, RoutineKind kind, Dictionary<(string, string), string?> comments) => new()
     {
@@ -1979,21 +1975,28 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         return (sort, nulls);
     }
 
-    private static Column MapColumn(ColumnRow row, Dictionary<(string, string, string), string?> columnComments) => new()
+    private static Column MapColumn(ColumnRow row, Dictionary<(string, string, string), string?> columnComments)
     {
-        Name = row.ColumnName,
-        Type = MapSqlType(row.DataType, row.UdtName, row.UdtSchema, row.DomainSchema, row.DomainName, row.MaxLength, row.NumericPrecision, row.NumericScale),
-        IsNullable = row.IsNullable,
-        IsIdentity = row.IsIdentity,
-        DefaultExpression = row.DefaultExpression,
-        IdentityOptions = row.IsIdentity
-            ? new IdentityOptions(row.IdentityStart, row.IdentityMinValue, row.IdentityIncrement)
-            : null,
-        GeneratedExpression = row.GeneratedExpression,
-        // Postgres has only stored generated columns, so one that exists is stored by construction.
-        IsStored = row.GeneratedExpression is not null,
-        Comment = columnComments.GetValueOrDefault((row.TableSchema, row.TableName, row.ColumnName)),
-    };
+        var type = MapSqlType(row.DataType, row.UdtName, row.UdtSchema, row.DomainSchema, row.DomainName, row.MaxLength, row.NumericPrecision, row.NumericScale);
+        return new Column
+        {
+            Name = row.ColumnName,
+            Type = type,
+            IsNullable = row.IsNullable,
+            IsIdentity = row.IsIdentity,
+            DefaultExpression = row.DefaultExpression,
+            // The identity's own sequence reports a start and a minimum whether or not either was declared, so they
+            // are folded onto the engine's defaults exactly as a standalone sequence's are.
+            IdentityOptions = row.IsIdentity
+                ? PostgresSqlEquivalence.FoldOptions(
+                    new IdentityOptions(row.IdentityStart, row.IdentityMinValue, row.IdentityIncrement), type)
+                : null,
+            GeneratedExpression = row.GeneratedExpression,
+            // Postgres has only stored generated columns, so one that exists is stored by construction.
+            IsStored = row.GeneratedExpression is not null,
+            Comment = columnComments.GetValueOrDefault((row.TableSchema, row.TableName, row.ColumnName)),
+        };
+    }
 
     /// <summary>
     /// The canonical model spelling of a catalog type name (<c>int4</c> to <c>int</c>, <c>uuid</c> to

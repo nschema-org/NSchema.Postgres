@@ -148,6 +148,14 @@ public sealed class PostgresSqlDialectSnapshotTests
             OldOptions: new IdentityOptions(StartWith: 1, MinValue: 1, IncrementBy: 1),
             NewOptions: new IdentityOptions(StartWith: 500, MinValue: 100, IncrementBy: 2)));
 
+    // RESTART reissues every value from the start onwards, so only a start that actually moved may carry one.
+    // SET START on its own records where a later restart begins and leaves the current value where it is.
+    [Fact]
+    public Task AlterIdentitySequence_WithoutAStartChange_DoesNotRestart() => VerifyActions(
+        new AlterIdentitySequence(new MemberAddress("public", "users", "id"),
+            OldOptions: new IdentityOptions(StartWith: null, MinValue: null, IncrementBy: 1),
+            NewOptions: new IdentityOptions(StartWith: null, MinValue: null, IncrementBy: 2)));
+
     [Fact]
     public Task GeneratedColumnOperations() => VerifyActions(
         new CreateTable("public", new Table
