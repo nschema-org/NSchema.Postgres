@@ -33,9 +33,9 @@ public sealed class PostgresSqlEquivalence : SqlEquivalence
     /// <c>CACHE 1</c>, the bound at the ascending or descending end of the type, and the start that follows from
     /// the effective bound — <c>CREATE SEQUENCE q MINVALUE 5</c> starts at 5, not at 1.
     /// </remarks>
-    public override SequenceOptions Fold(SequenceOptions options) => FoldOptions(options);
+    public override SequenceOptions WithDefaults(SequenceOptions options) => FoldOptions(options);
 
-    /// <inheritdoc cref="Fold(SequenceOptions)"/>
+    /// <inheritdoc cref="WithDefaults(SequenceOptions)"/>
     /// <remarks>Static so introspection folds a catalog row through the same rules the comparison uses.</remarks>
     internal static SequenceOptions FoldOptions(SequenceOptions options)
     {
@@ -60,9 +60,9 @@ public sealed class PostgresSqlEquivalence : SqlEquivalence
     /// not either was declared — so a column that asked only to be an identity reads back carrying both, and
     /// differs from itself on every deploy until they are folded away.
     /// </remarks>
-    public override IdentityOptions Fold(IdentityOptions options, SqlType columnType) => FoldOptions(options, columnType);
+    public override IdentityOptions WithDefaults(IdentityOptions options, SqlType columnType) => FoldOptions(options, columnType);
 
-    /// <inheritdoc cref="Fold(IdentityOptions, SqlType)"/>
+    /// <inheritdoc cref="WithDefaults(IdentityOptions, SqlType)"/>
     /// <remarks>Static so introspection folds a catalog row through the same rules the comparison uses.</remarks>
     internal static IdentityOptions FoldOptions(IdentityOptions options, SqlType columnType)
     {

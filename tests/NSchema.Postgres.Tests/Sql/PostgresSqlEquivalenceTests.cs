@@ -125,63 +125,63 @@ public sealed class PostgresSqlEquivalenceTests
     // ── Sequence options ──────────────────────────────────────────────────────
 
     [Fact]
-    public void Fold_SequenceDeclaringNothing_IsUnchanged()
-        => _sut.Fold(new SequenceOptions()).ShouldBe(new SequenceOptions());
+    public void WithDefaults_SequenceDeclaringNothing_IsUnchanged()
+        => _sut.WithDefaults(new SequenceOptions()).ShouldBe(new SequenceOptions());
 
     [Fact]
-    public void Fold_SequenceDeclaringTheEngineDefaults_FoldsToNothingDeclared()
+    public void WithDefaults_SequenceDeclaringTheEngineDefaults_FoldsToNothingDeclared()
         // The whole point: a project that says out loud what Postgres would have chosen anyway has to compare equal
         // to the catalog row, which cannot report which of the two happened.
-        => _sut.Fold(new SequenceOptions(
+        => _sut.WithDefaults(new SequenceOptions(
                 DataType: SqlType.BigInt, StartWith: 1, IncrementBy: 1, MinValue: 1, MaxValue: long.MaxValue, Cache: 1))
             .ShouldBe(new SequenceOptions());
 
     [Fact]
-    public void Fold_SequenceDeclaringTheDescendingDefaults_KeepsOnlyTheIncrement()
-        => _sut.Fold(new SequenceOptions(StartWith: -1, IncrementBy: -1, MinValue: long.MinValue, MaxValue: -1))
+    public void WithDefaults_SequenceDeclaringTheDescendingDefaults_KeepsOnlyTheIncrement()
+        => _sut.WithDefaults(new SequenceOptions(StartWith: -1, IncrementBy: -1, MinValue: long.MinValue, MaxValue: -1))
             .ShouldBe(new SequenceOptions(IncrementBy: -1));
 
     [Fact]
-    public void Fold_SequenceStartFollowingADeclaredMinimum_FoldsTheStartOnly()
+    public void WithDefaults_SequenceStartFollowingADeclaredMinimum_FoldsTheStartOnly()
         // CREATE SEQUENCE q MINVALUE 5 starts at 5, so a declared START 5 is the default while the minimum is not.
-        => _sut.Fold(new SequenceOptions(StartWith: 5, MinValue: 5)).ShouldBe(new SequenceOptions(MinValue: 5));
+        => _sut.WithDefaults(new SequenceOptions(StartWith: 5, MinValue: 5)).ShouldBe(new SequenceOptions(MinValue: 5));
 
     [Fact]
-    public void Fold_SequenceOptionsThatDifferFromTheDefaults_AreKept()
-        => _sut.Fold(new SequenceOptions(SqlType.Int, StartWith: 20, IncrementBy: 5, MinValue: 10, MaxValue: 1000, Cache: 10, Cycle: true))
+    public void WithDefaults_SequenceOptionsThatDifferFromTheDefaults_AreKept()
+        => _sut.WithDefaults(new SequenceOptions(SqlType.Int, StartWith: 20, IncrementBy: 5, MinValue: 10, MaxValue: 1000, Cache: 10, Cycle: true))
             .ShouldBe(new SequenceOptions(SqlType.Int, StartWith: 20, IncrementBy: 5, MinValue: 10, MaxValue: 1000, Cache: 10, Cycle: true));
 
     [Fact]
-    public void Fold_SequenceBoundsFollowTheDeclaredType()
+    public void WithDefaults_SequenceBoundsFollowTheDeclaredType()
         // int's maximum is the default ceiling for an integer sequence and a real one for a bigint sequence.
-        => _sut.Fold(new SequenceOptions(SqlType.Int, MaxValue: int.MaxValue)).ShouldBe(new SequenceOptions(SqlType.Int));
+        => _sut.WithDefaults(new SequenceOptions(SqlType.Int, MaxValue: int.MaxValue)).ShouldBe(new SequenceOptions(SqlType.Int));
 
     [Fact]
-    public void Fold_IntegerMaximumOnABigintSequence_IsKept()
-        => _sut.Fold(new SequenceOptions(MaxValue: int.MaxValue)).ShouldBe(new SequenceOptions(MaxValue: int.MaxValue));
+    public void WithDefaults_IntegerMaximumOnABigintSequence_IsKept()
+        => _sut.WithDefaults(new SequenceOptions(MaxValue: int.MaxValue)).ShouldBe(new SequenceOptions(MaxValue: int.MaxValue));
 
     // ── Identity options ──────────────────────────────────────────────────────
 
     [Fact]
-    public void Fold_IdentityDeclaringTheEngineDefaults_FoldsToNothingDeclared()
+    public void WithDefaults_IdentityDeclaringTheEngineDefaults_FoldsToNothingDeclared()
         // pg_sequence reports a start and a minimum for every identity, asked for or not.
-        => _sut.Fold(new IdentityOptions(StartWith: 1, MinValue: 1, IncrementBy: 1), SqlType.BigInt)
+        => _sut.WithDefaults(new IdentityOptions(StartWith: 1, MinValue: 1, IncrementBy: 1), SqlType.BigInt)
             .ShouldBe(new IdentityOptions(null, null, null));
 
     [Fact]
-    public void Fold_IdentityStartFollowingADeclaredMinimum_FoldsTheStartOnly()
-        => _sut.Fold(new IdentityOptions(StartWith: 5, MinValue: 5, IncrementBy: null), SqlType.Int)
+    public void WithDefaults_IdentityStartFollowingADeclaredMinimum_FoldsTheStartOnly()
+        => _sut.WithDefaults(new IdentityOptions(StartWith: 5, MinValue: 5, IncrementBy: null), SqlType.Int)
             .ShouldBe(new IdentityOptions(null, 5, null));
 
     [Fact]
-    public void Fold_IdentityOptionsThatDifferFromTheDefaults_AreKept()
-        => _sut.Fold(new IdentityOptions(StartWith: 100, MinValue: 10, IncrementBy: 5), SqlType.Int)
+    public void WithDefaults_IdentityOptionsThatDifferFromTheDefaults_AreKept()
+        => _sut.WithDefaults(new IdentityOptions(StartWith: 100, MinValue: 10, IncrementBy: 5), SqlType.Int)
             .ShouldBe(new IdentityOptions(100, 10, 5));
 
     [Fact]
-    public void Fold_IdentityKeepsNotForReplication()
+    public void WithDefaults_IdentityKeepsNotForReplication()
         // Not an option Postgres has a default for, and it has to survive the trip.
-        => _sut.Fold(new IdentityOptions(1, 1, 1, NotForReplication: true), SqlType.BigInt)
+        => _sut.WithDefaults(new IdentityOptions(1, 1, 1, NotForReplication: true), SqlType.BigInt)
             .NotForReplication.ShouldBeTrue();
 
     private void AssertDefaultsEqual(string x, string y)
