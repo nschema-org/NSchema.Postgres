@@ -162,6 +162,17 @@ First stable release of the PostgreSQL provider for NSchema, tracking the 1.0 re
 - `SqlType.Citext` and `SqlType.Jsonb` Postgres-specific type helpers on `SqlType`.
 - SourceLink and symbol packages (`.snupkg`) published alongside the main package for source-level debugging.
 
+[5.6.1]: https://github.com/nschema-org/NSchema.Postgres/compare/v5.6.0...v5.6.1
+[5.6.0]: https://github.com/nschema-org/NSchema.Postgres/compare/v5.5.0...v5.6.0
+[5.5.0]: https://github.com/nschema-org/NSchema.Postgres/compare/v5.4.0...v5.5.0
+[5.4.0]: https://github.com/nschema-org/NSchema.Postgres/compare/v5.3.0...v5.4.0
+[5.3.0]: https://github.com/nschema-org/NSchema.Postgres/compare/v5.2.0...v5.3.0
+[5.2.0]: https://github.com/nschema-org/NSchema.Postgres/compare/v5.1.0...v5.2.0
+[5.1.0]: https://github.com/nschema-org/NSchema.Postgres/compare/v5.0.0...v5.1.0
+[5.0.0]: https://github.com/nschema-org/NSchema.Postgres/compare/v4.3.0...v5.0.0
+[4.3.0]: https://github.com/nschema-org/NSchema.Postgres/compare/v4.0.0...v4.3.0
+[4.0.0]: https://github.com/nschema-org/NSchema.Postgres/compare/v3.0.1...v4.0.0
+[3.0.1]: https://github.com/nschema-org/NSchema.Postgres/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/nschema-org/NSchema.Postgres/compare/v2.0.0...v3.0.0
 [2.0.0]: https://github.com/nschema-org/NSchema.Postgres/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/nschema-org/NSchema.Postgres/releases/tag/v1.0.0
