@@ -10,7 +10,7 @@ This package uses **lockstep major versioning** with the core NSchema package: `
 
 As a consequence, breaking changes that are specific to this provider (rather than the core API) are signalled by a **minor version bump** rather than a major one, and called out explicitly in this changelog.
 
-## [Unreleased]
+## [5.7.0] - 2026-10-07
 
 ### Added
 
@@ -168,6 +168,7 @@ First stable release of the PostgreSQL provider for NSchema, tracking the 1.0 re
 - `SqlType.Citext` and `SqlType.Jsonb` Postgres-specific type helpers on `SqlType`.
 - SourceLink and symbol packages (`.snupkg`) published alongside the main package for source-level debugging.
 
+[5.7.0]: https://github.com/nschema-org/NSchema.Postgres/compare/v5.6.1...v5.7.0
 [5.6.1]: https://github.com/nschema-org/NSchema.Postgres/compare/v5.6.0...v5.6.1
 [5.6.0]: https://github.com/nschema-org/NSchema.Postgres/compare/v5.5.0...v5.6.0
 [5.5.0]: https://github.com/nschema-org/NSchema.Postgres/compare/v5.4.0...v5.5.0
