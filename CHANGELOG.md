@@ -10,6 +10,12 @@ This package uses **lockstep major versioning** with the core NSchema package: `
 
 As a consequence, breaking changes that are specific to this provider (rather than the core API) are signalled by a **minor version bump** rather than a major one, and called out explicitly in this changelog.
 
+## [Unreleased]
+
+### Added
+
+- **Publication support.**, Includes column lists, row filters and `TABLES IN SCHEMA` on PostgreSQL 15 and later.
+
 ## [5.6.1] - 2026-08-13
 
 ### Fixed

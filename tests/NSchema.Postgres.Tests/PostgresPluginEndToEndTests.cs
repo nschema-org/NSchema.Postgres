@@ -142,6 +142,46 @@ public sealed class PostgresPluginEndToEndTests(PostgresContainerFixture fixture
     }
 
     /// <summary>Builds an app wired only through the plugin manifest, plus the ephemeral state planning requires.</summary>
+    [Fact]
+    public async Task Apply_Publication_ThenRefreshAndPlanAgain_ShowsNoChanges()
+    {
+        // Arrange — Postgres stores the column list in column order and rewrites the filter, so a clean second
+        // plan proves both are absorbed rather than reported as drift.
+        var publication = $"pub_{Guid.NewGuid():N}";
+        await File.WriteAllTextAsync(Path.Combine(_projectDir, "schema.sql"), $"""
+            CREATE SCHEMA {_schema};
+
+            CREATE TABLE {_schema}.orders (
+              id bigint NOT NULL,
+              status text NOT NULL,
+              total numeric(12,2),
+              CONSTRAINT orders_pkey PRIMARY KEY (id)
+            ) REPLICA IDENTITY FULL;
+
+            CREATE PUBLICATION {publication}
+              FOR TABLE {_schema}.orders (total, status, id) WHERE (status <> 'draft')
+              PUBLISH (INSERT, UPDATE);
+            """, TestContext.Current.CancellationToken);
+
+        try
+        {
+            using var app = BuildApp();
+
+            // Act
+            var first = await Plan(app);
+            (await app.Operations.Apply(new ApplyArguments { Plan = first }, TestContext.Current.CancellationToken)).IsSuccess.ShouldBeTrue();
+            var second = await Plan(app);
+
+            // Assert
+            second.Diff.IsEmpty.ShouldBeTrue();
+            (await Scalar($"SELECT relreplident::text FROM pg_class WHERE oid = '{_schema}.orders'::regclass")).ShouldBe("f");
+        }
+        finally
+        {
+            await Exec($"""DROP PUBLICATION IF EXISTS "{publication}" """);
+        }
+    }
+
     private NSchemaApplication BuildApp()
     {
         var builder = NSchemaApplication.CreateBuilder();
