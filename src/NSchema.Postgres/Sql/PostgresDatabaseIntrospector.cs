@@ -10,6 +10,7 @@ using NSchema.Model.Domains;
 using NSchema.Model.Enums;
 using NSchema.Model.Extensions;
 using NSchema.Model.Indexes;
+using NSchema.Model.Publications;
 using NSchema.Model.Routines;
 using NSchema.Model.Schemas;
 using NSchema.Model.Sequences;
@@ -93,6 +94,9 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
         // through NSchema comes back looking the same and no longer routing a single row the way it used to.
         var partitioning = await QueryPartitioning(conn, schemas, cancellationToken);
 
+        // Publications are database-global, so the schema list does not narrow them.
+        var publications = await QueryPublications(conn, cancellationToken);
+
         var database = Build(
             tables, columns, primaryKeys, foreignKeys, uniqueConstraints, checkConstraints, exclusionConstraints, indexes, triggers,
             schemaComments, tableComments, columnComments, indexComments, constraintComments,
@@ -102,6 +106,7 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
             functions, functionComments, procedures, procedureComments, aggregates, aggregateComments,
             extensions
         );
+        database.Publications.AddRange(publications);
 
         return partitioning.Count == 0
             ? Result.Success(database)
@@ -146,6 +151,107 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
 
     // ── Queries ───────────────────────────────────────────────────────────────
 
+    // Column lists, row filters and TABLES IN SCHEMA arrived in Postgres 15; before it, none of their catalog
+    // columns exist.
+    private static async Task<List<Publication>> QueryPublications(NpgsqlConnection conn, CancellationToken ct)
+    {
+        var modern = conn.PostgreSqlVersion.Major >= 15;
+
+        var publications = new List<PublicationRow>();
+        await using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT p.pubname, p.puballtables, p.pubinsert, p.pubupdate, p.pubdelete, p.pubtruncate,
+                       obj_description(p.oid, 'pg_publication')
+                FROM pg_publication p
+                ORDER BY p.pubname
+                """;
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                publications.Add(new PublicationRow(reader.GetString(0), reader.GetBoolean(1), reader.GetBoolean(2),
+                    reader.GetBoolean(3), reader.GetBoolean(4), reader.GetBoolean(5), reader.IsDBNull(6) ? null : reader.GetString(6)));
+            }
+        }
+
+        var tables = new List<PublishedTableRow>();
+        await using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = modern
+                ? """
+                  SELECT p.pubname, n.nspname, c.relname,
+                         (SELECT array_agg(a.attname ORDER BY a.attnum)
+                          FROM pg_attribute a
+                          WHERE a.attrelid = pr.prrelid AND a.attnum = ANY(pr.prattrs::int2[])),
+                         pg_get_expr(pr.prqual, pr.prrelid)
+                  FROM pg_publication_rel pr
+                  JOIN pg_publication p ON p.oid = pr.prpubid
+                  JOIN pg_class c ON c.oid = pr.prrelid
+                  JOIN pg_namespace n ON n.oid = c.relnamespace
+                  ORDER BY p.pubname, n.nspname, c.relname
+                  """
+                : """
+                  SELECT p.pubname, n.nspname, c.relname, NULL::text[], NULL::text
+                  FROM pg_publication_rel pr
+                  JOIN pg_publication p ON p.oid = pr.prpubid
+                  JOIN pg_class c ON c.oid = pr.prrelid
+                  JOIN pg_namespace n ON n.oid = c.relnamespace
+                  ORDER BY p.pubname, n.nspname, c.relname
+                  """;
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                tables.Add(new PublishedTableRow(reader.GetString(0), reader.GetString(1), reader.GetString(2),
+                    reader.IsDBNull(3) ? null : reader.GetFieldValue<string[]>(3), reader.IsDBNull(4) ? null : reader.GetString(4)));
+            }
+        }
+
+        var schemas = new List<(string Publication, string Schema)>();
+        if (modern)
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                SELECT p.pubname, n.nspname
+                FROM pg_publication_namespace pn
+                JOIN pg_publication p ON p.oid = pn.pnpubid
+                JOIN pg_namespace n ON n.oid = pn.pnnspid
+                ORDER BY p.pubname, n.nspname
+                """;
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                schemas.Add((reader.GetString(0), reader.GetString(1)));
+            }
+        }
+
+        return [.. publications.Select(p => new Publication
+        {
+            Name = p.Name,
+            AllTables = p.AllTables,
+            Tables = [.. tables.Where(t => t.Publication == p.Name).Select(t => new PublishedTable(
+                new ObjectAddress(t.Schema, t.Table),
+                t.Columns?.Select(c => new SqlIdentifier(c)).ToList(),
+                t.Filter is { } filter ? new SqlText(filter) : null))],
+            Schemas = [.. schemas.Where(s => s.Publication == p.Name).Select(s => new SqlIdentifier(s.Schema))],
+            Operations = (p.Insert ? PublishedOperations.Insert : PublishedOperations.None)
+                | (p.Update ? PublishedOperations.Update : PublishedOperations.None)
+                | (p.Delete ? PublishedOperations.Delete : PublishedOperations.None)
+                | (p.Truncate ? PublishedOperations.Truncate : PublishedOperations.None),
+            Comment = p.Comment,
+        })];
+    }
+
+    // Postgres's default ('d', the primary key) is the engine's default, which the model leaves unstated. An index
+    // identity whose index has since been dropped identifies nothing, as Postgres treats it.
+    internal static ReplicaIdentity? MapReplicaIdentity(TableRow row) => row.ReplicaIdentity switch
+    {
+        'f' => ReplicaIdentity.Full,
+        'n' => ReplicaIdentity.Nothing,
+        'i' when row.ReplicaIdentityIndex is { } index => ReplicaIdentity.UsingIndex(index),
+        'i' => ReplicaIdentity.Nothing,
+        _ => null,
+    };
+
     private static void AddSchemasParameter(NpgsqlCommand cmd, string[]? schemas)
     {
         var parameter = cmd.Parameters.Add("schemas", NpgsqlDbType.Array | NpgsqlDbType.Text);
@@ -156,22 +262,27 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
     {
         var rows = new List<TableRow>();
         await using var cmd = conn.CreateCommand();
+        // The replica identity rides along: relreplident, and the index when it names one.
         cmd.CommandText = """
-            SELECT table_schema, table_name
-            FROM information_schema.tables
-            WHERE table_type = 'BASE TABLE'
-            AND (@schemas::text[] IS NULL OR table_schema = ANY(@schemas))
-            AND table_schema NOT IN ('pg_catalog', 'information_schema')
-            AND table_schema NOT LIKE 'pg\_toast%' ESCAPE '\'
-            AND table_schema NOT LIKE 'pg\_temp%' ESCAPE '\'
-            ORDER BY table_schema, table_name
+            SELECT t.table_schema, t.table_name, c.relreplident, ri.relname
+            FROM information_schema.tables t
+            JOIN pg_namespace n ON n.nspname = t.table_schema
+            JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = t.table_name
+            LEFT JOIN pg_index i ON i.indrelid = c.oid AND i.indisreplident
+            LEFT JOIN pg_class ri ON ri.oid = i.indexrelid
+            WHERE t.table_type = 'BASE TABLE'
+            AND (@schemas::text[] IS NULL OR t.table_schema = ANY(@schemas))
+            AND t.table_schema NOT IN ('pg_catalog', 'information_schema')
+            AND t.table_schema NOT LIKE 'pg\_toast%' ESCAPE '\'
+            AND t.table_schema NOT LIKE 'pg\_temp%' ESCAPE '\'
+            ORDER BY t.table_schema, t.table_name
             """;
         AddSchemasParameter(cmd, schemas);
 
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct))
         {
-            rows.Add(new TableRow(reader.GetString(0), reader.GetString(1)));
+            rows.Add(new TableRow(reader.GetString(0), reader.GetString(1), reader.GetChar(2), reader.IsDBNull(3) ? null : reader.GetString(3)));
         }
 
         return rows;
@@ -1832,6 +1943,7 @@ internal sealed class PostgresDatabaseIntrospector(NpgsqlDataSource dataSource) 
             Indexes = [.. idxs],
             Grants = [.. grants],
             Triggers = [.. triggers],
+            ReplicaIdentity = MapReplicaIdentity(tableRow),
         };
     }
 

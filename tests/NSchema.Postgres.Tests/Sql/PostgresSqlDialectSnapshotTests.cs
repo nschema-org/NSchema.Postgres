@@ -5,6 +5,7 @@ using NSchema.Model.Constraints;
 using NSchema.Model.Domains;
 using NSchema.Model.Enums;
 using NSchema.Model.Extensions;
+using NSchema.Model.Publications;
 using NSchema.Model.Indexes;
 using NSchema.Model.Routines;
 using NSchema.Model.Scripts;
@@ -19,6 +20,7 @@ using NSchema.Plan.Domain.Constraints;
 using NSchema.Plan.Domain.Domains;
 using NSchema.Plan.Domain.Enums;
 using NSchema.Plan.Domain.Extensions;
+using NSchema.Plan.Domain.Publications;
 using NSchema.Plan.Domain.Indexes;
 using NSchema.Plan.Domain.Routines;
 using NSchema.Plan.Domain.Schemas;
@@ -372,6 +374,40 @@ public sealed class PostgresSqlDialectSnapshotTests
         new SetSequenceComment(new ObjectAddress("public", "invoice_id"), null, "Invoice numbers"),
         new SetSequenceComment(new ObjectAddress("public", "invoice_id"), "Invoice numbers", null),
         new DropSequence(new ObjectAddress("public", "invoice_id")));
+
+    // ── Publications ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public Task PublicationOperations() => VerifyActions(
+        new CreatePublication(new Publication { Name = "empty" }),
+        new CreatePublication(new Publication { Name = "everything", AllTables = true, Operations = PublishedOperations.Insert }),
+        new CreatePublication(new Publication
+        {
+            Name = "audit_feed",
+            Tables = [new PublishedTable(new ObjectAddress("sales", "orders"), Filter: "status <> 'draft'")],
+            Schemas = ["audit", "archive"],
+        }),
+        new CreatePublication(new Publication
+        {
+            Name = "orders_feed",
+            Tables =
+            [
+                new PublishedTable(new ObjectAddress("sales", "orders"), ["id", "status"], "status <> 'draft'"),
+                new PublishedTable(new ObjectAddress("sales", "order_lines")),
+            ],
+            Operations = PublishedOperations.None,
+        }),
+        new DropPublication("orders_feed"),
+        new RenamePublication("orders_feed", "order_changes"),
+        new AddPublicationTable("orders_feed", new PublishedTable(new ObjectAddress("sales", "orders"), ["id"])),
+        new DropPublicationTable("orders_feed", new ObjectAddress("sales", "orders")),
+        new AddPublicationSchema("orders_feed", "audit"),
+        new DropPublicationSchema("orders_feed", "audit"),
+        new SetPublicationOperations("orders_feed", PublishedOperations.All, PublishedOperations.Insert | PublishedOperations.Delete),
+        new SetPublicationComment("orders_feed", null, "Order changes"),
+        new SetReplicaIdentity(new ObjectAddress("sales", "orders"), null, ReplicaIdentity.Full),
+        new SetReplicaIdentity(new ObjectAddress("sales", "orders"), null, ReplicaIdentity.UsingIndex("ux_orders")),
+        new SetReplicaIdentity(new ObjectAddress("sales", "orders"), ReplicaIdentity.Full, null));
 
     // ── Extensions ────────────────────────────────────────────────────────────
 

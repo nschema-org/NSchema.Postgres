@@ -1,0 +1,62 @@
+﻿[
+  {
+    Sql: CREATE PUBLICATION "empty",
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: CREATE PUBLICATION "everything" FOR ALL TABLES WITH (publish = 'insert'),
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: CREATE PUBLICATION "audit_feed" FOR TABLE "sales"."orders" WHERE (status <> 'draft'), TABLES IN SCHEMA "audit", "archive",
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: CREATE PUBLICATION "orders_feed" FOR TABLE "sales"."orders" ("id", "status") WHERE (status <> 'draft'), "sales"."order_lines" WITH (publish = ''),
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: DROP PUBLICATION "orders_feed",
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER PUBLICATION "orders_feed" RENAME TO "order_changes",
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER PUBLICATION "orders_feed" ADD TABLE "sales"."orders" ("id"),
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER PUBLICATION "orders_feed" DROP TABLE "sales"."orders",
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER PUBLICATION "orders_feed" ADD TABLES IN SCHEMA "audit",
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER PUBLICATION "orders_feed" DROP TABLES IN SCHEMA "audit",
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER PUBLICATION "orders_feed" SET (publish = 'insert, delete'),
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: COMMENT ON PUBLICATION "orders_feed" IS $comment$Order changes$comment$,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "sales"."orders" REPLICA IDENTITY FULL,
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "sales"."orders" REPLICA IDENTITY USING INDEX "ux_orders",
+    RunOutsideTransaction: false
+  },
+  {
+    Sql: ALTER TABLE "sales"."orders" REPLICA IDENTITY DEFAULT,
+    RunOutsideTransaction: false
+  }
+]

@@ -1,3 +1,4 @@
+using NSchema.Model.Tables;
 using NSchema.Plan.Domain;
 using NSchema.Plan.Domain.Tables;
 
@@ -25,4 +26,14 @@ internal sealed partial class PostgresSqlDialect
 
     protected override Result<IReadOnlyList<SqlStatement>> SetTableComment(SetTableComment action) =>
         Comment($"TABLE {Qualify(action.Table)}", action.NewComment);
+
+    // No declared identity is the engine's default, which Postgres spells DEFAULT (the primary key).
+    protected override Result<IReadOnlyList<SqlStatement>> SetReplicaIdentity(SetReplicaIdentity action) =>
+        Statement($"ALTER TABLE {Qualify(action.Table)} REPLICA IDENTITY " + action.NewIdentity switch
+        {
+            null => "DEFAULT",
+            { Kind: ReplicaIdentityKind.Full } => "FULL",
+            { Kind: ReplicaIdentityKind.Index, Index: { } index } => $"USING INDEX {Quote(index)}",
+            _ => "NOTHING",
+        });
 }

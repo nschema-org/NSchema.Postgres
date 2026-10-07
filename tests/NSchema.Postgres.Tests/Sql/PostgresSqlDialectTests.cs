@@ -6,6 +6,7 @@ using NSchema.Model.Constraints;
 using NSchema.Model.Domains;
 using NSchema.Model.Enums;
 using NSchema.Model.Extensions;
+using NSchema.Model.Publications;
 using NSchema.Model.Indexes;
 using NSchema.Model.Routines;
 using NSchema.Model.Scripts;
@@ -20,6 +21,7 @@ using NSchema.Plan.Domain.Constraints;
 using NSchema.Plan.Domain.Domains;
 using NSchema.Plan.Domain.Enums;
 using NSchema.Plan.Domain.Extensions;
+using NSchema.Plan.Domain.Publications;
 using NSchema.Plan.Domain.Indexes;
 using NSchema.Plan.Domain.Routines;
 using NSchema.Plan.Domain.Schemas;
@@ -889,6 +891,127 @@ public sealed class PostgresSqlDialectTests(PostgresContainerFixture fixture) : 
         var hstore = database.Extensions.Single(e => e.Name == "hstore");
         hstore.Version.ShouldNotBeNull();
         database.Extensions.ShouldNotContain(e => e.Name == "plpgsql");
+    }
+
+    // ── Publications ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task CreatePublication_ThenIntrospect_RoundTrips()
+    {
+        // Arrange — publications are database-global, so each test names its own and drops it.
+        await Exec($"""CREATE TABLE "{_schema}".orders (id int PRIMARY KEY, status text, total numeric)""");
+        await Exec($"""CREATE TABLE "{_schema}".lines (id int PRIMARY KEY)""");
+        var name = $"pub_{Guid.NewGuid():N}";
+        var publication = new Publication
+        {
+            Name = name,
+            Tables =
+            [
+                new PublishedTable(new ObjectAddress(_schema, "orders"), ["total", "id", "status"], "status <> 'draft'"),
+                new PublishedTable(new ObjectAddress(_schema, "lines")),
+            ],
+            Operations = PublishedOperations.Insert | PublishedOperations.Update,
+        };
+
+        try
+        {
+            // Act
+            await Run(new CreatePublication(publication));
+            await Run(new SetPublicationComment(name, null, "order changes"));
+
+            // Assert — the column list comes back in column order and the filter in Postgres's own spelling, which
+            // is what the recorded declaration exists to absorb.
+            var introspected = (await Introspect()).Publications.Single(p => p.Name == name);
+            introspected.Operations.ShouldBe(PublishedOperations.Insert | PublishedOperations.Update);
+            introspected.Comment.ShouldBe("order changes");
+            var orders = introspected.Tables.Single(t => t.Table.Name == "orders");
+            orders.SameColumns(publication.Tables[0]).ShouldBeTrue();
+            orders.Filter!.Value.ShouldContain("draft");
+            introspected.Tables.Single(t => t.Table.Name == "lines").Columns.ShouldBeNull();
+        }
+        finally
+        {
+            await Exec($"""DROP PUBLICATION IF EXISTS "{name}" """);
+        }
+    }
+
+    [Fact]
+    public async Task AlterPublication_TablesSchemasAndOperations()
+    {
+        // Arrange
+        await Exec($"""CREATE TABLE "{_schema}".orders (id int PRIMARY KEY, status text)""");
+        var name = $"pub_{Guid.NewGuid():N}";
+        await Run(new CreatePublication(new Publication { Name = name }));
+
+        try
+        {
+            // Act
+            // Postgres refuses a column list beside TABLES IN SCHEMA, so this entry publishes every column.
+            await Run(new AddPublicationTable(name, new PublishedTable(new ObjectAddress(_schema, "orders"), Filter: "id > 0")));
+            await Run(new AddPublicationSchema(name, "public"));
+            await Run(new SetPublicationOperations(name, PublishedOperations.All, PublishedOperations.Delete));
+            var renamed = $"{name}_x";
+            await Run(new RenamePublication(name, renamed));
+            name = renamed;
+
+            // Assert
+            var introspected = (await Introspect()).Publications.Single(p => p.Name == name);
+            introspected.Tables.ShouldHaveSingleItem().Filter.ShouldNotBeNull();
+            introspected.Schemas.ShouldBe([new SqlIdentifier("public")]);
+            introspected.Operations.ShouldBe(PublishedOperations.Delete);
+
+            // Act — and back out.
+            await Run(new DropPublicationTable(name, new ObjectAddress(_schema, "orders")));
+            await Run(new DropPublicationSchema(name, "public"));
+
+            // Assert
+            var emptied = (await Introspect()).Publications.Single(p => p.Name == name);
+            emptied.Tables.ShouldBeEmpty();
+            emptied.Schemas.ShouldBeEmpty();
+        }
+        finally
+        {
+            await Exec($"""DROP PUBLICATION IF EXISTS "{name}" """);
+        }
+    }
+
+    [Fact]
+    public async Task DropPublication_RemovesIt()
+    {
+        // Arrange
+        var name = $"pub_{Guid.NewGuid():N}";
+        await Run(new CreatePublication(new Publication { Name = name, AllTables = true }));
+
+        // Act
+        await Run(new DropPublication(name));
+
+        // Assert
+        (await Introspect()).Publications.ShouldNotContain(p => p.Name == name);
+    }
+
+    [Theory]
+    [InlineData(ReplicaIdentityKind.Full)]
+    [InlineData(ReplicaIdentityKind.Nothing)]
+    [InlineData(ReplicaIdentityKind.Index)]
+    public async Task SetReplicaIdentity_ThenIntrospect_RoundTrips(ReplicaIdentityKind kind)
+    {
+        // Arrange
+        await Exec($"""CREATE TABLE "{_schema}".events (id int NOT NULL, kind text)""");
+        await Exec($"""CREATE UNIQUE INDEX ux_events ON "{_schema}".events (id)""");
+        var identity = new ReplicaIdentity(kind, kind == ReplicaIdentityKind.Index ? "ux_events" : null);
+        var table = new ObjectAddress(_schema, "events");
+
+        // Act
+        await Run(new SetReplicaIdentity(table, null, identity));
+
+        // Assert
+        (await Introspect()).Schemas[0].Tables.Single(t => t.Name == "events").ReplicaIdentity.ShouldBe(identity);
+
+        // Act — the engine's default is no identity at all in the model.
+        await Run(new SetReplicaIdentity(table, identity, null));
+
+        // Assert
+        (await Introspect()).Schemas[0].Tables.Single(t => t.Name == "events").ReplicaIdentity.ShouldBeNull();
     }
 
     // ── Composite types ──────────────────────────────────────────────────────
