@@ -16,7 +16,7 @@
     <PackageVersion Include="Shouldly" Version="4.3.0" />
     <PackageVersion Include="SSH.NET" Version="2026.0.0" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.15.0" />
-    <PackageVersion Include="Verify.XunitV3" Version="32.0.1" />
+    <PackageVersion Include="Verify.XunitV3" Version="33.3.1" />
     <PackageVersion Include="xunit.v3" Version="4.0.1" />
   </ItemGroup>
 </Project>
